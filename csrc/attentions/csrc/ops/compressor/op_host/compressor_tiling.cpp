@@ -983,6 +983,7 @@ ge::graphStatus CompressorTiling::CheckMultiParaConsistency() const
 
 CMP_EXTERN_C ge::graphStatus TilingCompressor(gert::TilingContext *context)
 {
+    printf("Compressor: NEW tiling build\n");
     OP_CHECK_IF(context == nullptr, OPS_REPORT_VECTOR_INNER_ERR("Compressor", "Context is nullptr."),
                return ge::GRAPH_FAILED);
 

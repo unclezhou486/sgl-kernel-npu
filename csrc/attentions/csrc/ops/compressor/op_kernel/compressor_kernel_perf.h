@@ -655,6 +655,7 @@ __aicore__ inline void CompressorKernelPerf<COMP>::UpdateVec2Info(
 template <typename COMP>
 __aicore__ inline void CompressorKernelPerf<COMP>::Process()
 {
+    printf("Compressor: NEW kernel build\n");
     // 所有batch的有效序列都为0时, 直接退出
     if (constInfo.batchSize == 0) {
         return;
