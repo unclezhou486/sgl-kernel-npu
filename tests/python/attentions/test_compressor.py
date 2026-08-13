@@ -67,12 +67,17 @@ def _ensure_plugin_loaded() -> None:
 
 
 def _compressor_op():
-    """Return the compressor op, preferring this repo's attentions binding."""
+    """Return (binding, op), preferring this repo's attentions binding.
+
+    The external ``torch.ops.custom.compressor`` binding is a GE-graph converter
+    (custom_ops package) that computes ``state_cache_stride_dim0`` internally, so
+    the ``state_cache_stride_dim0`` kwarg is only accepted by the attentions binding.
+    """
     _ensure_plugin_loaded()
     if hasattr(torch.ops, "attentions") and hasattr(torch.ops.attentions, "compressor"):
-        return torch.ops.attentions.compressor
+        return "attentions", torch.ops.attentions.compressor
     if hasattr(torch.ops, "custom") and hasattr(torch.ops.custom, "compressor"):
-        return torch.ops.custom.compressor
+        return "custom", torch.ops.custom.compressor
     raise RuntimeError("compressor op not registered under attentions or custom")
 
 
@@ -100,7 +105,30 @@ class TestCompressor(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         _ensure_vendor_path()
-        cls.op = _compressor_op()
+        cls.binding, cls.op = _compressor_op()
+
+    def _call(self, x, wkv, wgate, state_cache, ape, norm_weight, sin, cos, head_dim,
+              coff, cmp_ratio, table, cu, used, starts, cache_mode, stride_dim0):
+        kwargs = {
+            "rope_sin": sin,
+            "rope_cos": cos,
+            "rope_head_dim": 64,
+            "cmp_ratio": cmp_ratio,
+            "state_block_table": table,
+            "cu_seqlens": cu,
+            "seqused": used,
+            "start_pos": starts,
+            "coff": coff,
+            "norm_eps": 1e-6,
+            "rotary_mode": 2,
+            "cache_mode": cache_mode,
+        }
+        if self.binding == "attentions":
+            # The aclnn executor path requires the explicit stride attr.
+            kwargs["state_cache_stride_dim0"] = stride_dim0
+        out = self.op(x, wkv, wgate, state_cache, ape, norm_weight, **kwargs)
+        torch.npu.synchronize()
+        return out
 
     def _run_ring(
         self, batch_size, capacity, hidden, head_dim, coff, cmp_ratio, start_pos
@@ -130,28 +158,11 @@ class TestCompressor(unittest.TestCase):
         used = torch.full((batch_size,), capacity, dtype=torch.int32).npu()
         starts = torch.tensor(start_pos, dtype=torch.int32).npu()
 
-        out = self.op(
-            x,
-            wkv,
-            wgate,
-            state_cache,
-            ape,
-            norm_weight,
-            rope_sin=sin,
-            rope_cos=cos,
-            rope_head_dim=64,
-            cmp_ratio=cmp_ratio,
-            state_block_table=table,
-            cu_seqlens=cu,
-            seqused=used,
-            start_pos=starts,
-            coff=coff,
-            norm_eps=1e-6,
-            rotary_mode=2,
-            cache_mode=2,
-            state_cache_stride_dim0=block_size * (2 * width),
+        out = self._call(
+            x, wkv, wgate, state_cache, ape, norm_weight, sin, cos, head_dim,
+            coff, cmp_ratio, table, cu, used, starts,
+            cache_mode=2, stride_dim0=block_size * (2 * width),
         )
-        torch.npu.synchronize()
         return out, state_cache, rope_rows, head_dim
 
     def test_ring_mode_th_c4a(self):
@@ -168,7 +179,9 @@ class TestCompressor(unittest.TestCase):
         self.assertEqual(out.device.type, "npu")
         self.assertEqual(tuple(out.shape), (rope_rows, head_dim))
         self.assertTrue(torch.isfinite(out).all())
-        self.assertGreater(torch.abs(state_cache).max().item(), 0.0)
+        if self.binding == "attentions":
+            # Only the aclnn path is guaranteed to write back into the passed tensor.
+            self.assertGreater(torch.abs(state_cache).max().item(), 0.0)
 
     def test_ring_mode_th_c4li(self):
         out, state_cache, rope_rows, head_dim = self._run_ring(
@@ -182,7 +195,9 @@ class TestCompressor(unittest.TestCase):
         )
         self.assertEqual(tuple(out.shape), (rope_rows, head_dim))
         self.assertTrue(torch.isfinite(out).all())
-        self.assertGreater(torch.abs(state_cache).max().item(), 0.0)
+        if self.binding == "attentions":
+            # Only the aclnn path is guaranteed to write back into the passed tensor.
+            self.assertGreater(torch.abs(state_cache).max().item(), 0.0)
 
     def test_ring_mode_th_multibatch(self):
         out, state_cache, rope_rows, head_dim = self._run_ring(
@@ -196,7 +211,9 @@ class TestCompressor(unittest.TestCase):
         )
         self.assertEqual(tuple(out.shape), (rope_rows, head_dim))
         self.assertTrue(torch.isfinite(out).all())
-        self.assertGreater(torch.abs(state_cache).max().item(), 0.0)
+        if self.binding == "attentions":
+            # Only the aclnn path is guaranteed to write back into the passed tensor.
+            self.assertGreater(torch.abs(state_cache).max().item(), 0.0)
 
     def test_paged_mode_th(self):
         head_dim, coff, cmp_ratio, capacity = 128, 2, 4, 8
@@ -219,28 +236,11 @@ class TestCompressor(unittest.TestCase):
         used = torch.tensor([capacity], dtype=torch.int32).npu()
         starts = torch.zeros(1, dtype=torch.int32).npu()
 
-        out = self.op(
-            x,
-            wkv,
-            wgate,
-            state_cache,
-            ape,
-            norm_weight,
-            rope_sin=sin,
-            rope_cos=cos,
-            rope_head_dim=64,
-            cmp_ratio=cmp_ratio,
-            state_block_table=table,
-            cu_seqlens=cu,
-            seqused=used,
-            start_pos=starts,
-            coff=coff,
-            norm_eps=1e-6,
-            rotary_mode=2,
-            cache_mode=1,
-            state_cache_stride_dim0=2 * width,
+        out = self._call(
+            x, wkv, wgate, state_cache, ape, norm_weight, sin, cos, head_dim,
+            coff, cmp_ratio, table, cu, used, starts,
+            cache_mode=1, stride_dim0=2 * width,
         )
-        torch.npu.synchronize()
         self.assertEqual(tuple(out.shape), (rope_rows, head_dim))
         self.assertTrue(torch.isfinite(out).all())
 
