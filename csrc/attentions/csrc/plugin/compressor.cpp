@@ -41,7 +41,7 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const at::Tens
 
     EXEC_NPU_CMD<COMPRESSOR_NAME>(x, wkv, wgate, state_cache, ape, norm_weight, rope_sin, rope_cos, state_block_table,
                                   cu_seqlens, seqused, start_pos, rope_head_dim, cmp_ratio, coff, norm_eps, rotary_mode,
-                                  cache_mode, state_cache_stride_dim0, cmp_kv, state_cache);
+                                  cache_mode, state_cache_stride_dim0, cmp_kv);
 
     return cmp_kv;
 }
