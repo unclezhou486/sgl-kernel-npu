@@ -17,6 +17,7 @@
 #include "block_sparse_attention.h"
 #include "sparse_block_estimate.h"
 #include "layernorm.h"
+#include "compressor.h"
 
 TORCH_LIBRARY(attentions, m)
 {
@@ -51,6 +52,11 @@ TORCH_LIBRARY(attentions, m)
     m.def(
         "layernorm(Tensor input, int[] normalized_shape, Tensor? weight=None, Tensor? bias=None, float eps=1e-05, \
         int impl_mode=0) -> (Tensor, Tensor, Tensor)");
+    m.def(
+        "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor state_cache, Tensor ape, Tensor norm_weight, \
+        Tensor rope_sin, Tensor rope_cos, Tensor? state_block_table=None, Tensor? cu_seqlens=None, \
+        Tensor? seqused=None, Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, \
+        float norm_eps=1e-06, int rotary_mode=1, int cache_mode=1, int state_cache_stride_dim0=0) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
@@ -60,4 +66,5 @@ TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
     m.impl("block_sparse_attention", &block_sparse_attention);
     m.impl("sparse_block_estimate", &sparse_block_estimate);
     m.impl("layernorm", &layernorm_npu);
+    m.impl("compressor", &compressor);
 }
