@@ -56,14 +56,11 @@ def _ensure_plugin_loaded() -> None:
     )
     if plugin.exists():
         torch.ops.load_library(str(plugin))
-    else:
-        try:
-            import attentions  # noqa: F401
-        except ImportError:
-            raise RuntimeError(
-                "compressor plugin not found; build it via "
-                "csrc/attentions/build/build_plugin.sh first."
-            )
+        return
+    try:
+        import attentions  # noqa: F401
+    except ImportError:
+        pass
 
 
 def _compressor_op():
@@ -76,6 +73,10 @@ def _compressor_op():
     _ensure_plugin_loaded()
     if hasattr(torch.ops, "attentions") and hasattr(torch.ops.attentions, "compressor"):
         return "attentions", torch.ops.attentions.compressor
+    try:
+        import custom_ops  # noqa: F401
+    except ImportError:
+        pass
     if hasattr(torch.ops, "custom") and hasattr(torch.ops.custom, "compressor"):
         return "custom", torch.ops.custom.compressor
     raise RuntimeError("compressor op not registered under attentions or custom")
