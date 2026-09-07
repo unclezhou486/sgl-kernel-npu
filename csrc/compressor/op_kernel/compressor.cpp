@@ -104,16 +104,16 @@ extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR
     }
     switch (key) {
         // TH layout (layout bit = 1)
-        // [TRIM] temporary: TH bf16 coff1(coff2) cache2 (ratio128 repro + b256).
-// Restore: git checkout -- csrc/compressor/op_kernel/compressor.cpp
-LAUNCH_COMPRESSOR_KEY(1, 0, 1, 2, 2)  // TH bf16 coff1 rot2 cache2
-LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 2)  // TH bf16 coff2 rot2 cache2
-LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 2)  // TH fp16 coff1 rot2 cache2
-LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 2)  // TH fp16 coff2 rot2 cache2
-        // LAUNCH_COMPRESSOR_KEY(1, 0, 1, 2, 1)  // TH bf16 coff1 rot2 cache1
-        // LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 1)  // TH bf16 coff2 rot2 cache1
-        // LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 1)  // TH fp16 coff1 rot2 cache1
-        // LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 1)  // TH fp16 coff2 rot2 cache1
+        // [TRIM] TH bf16/fp16 x coff1/2 x cache2 (DSV4 sglang) + cache1 (CONTINUOUS regression)
+        // Restore: git checkout -- csrc/compressor/op_kernel/compressor.cpp
+        LAUNCH_COMPRESSOR_KEY(1, 0, 1, 2, 2)  // TH bf16 coff1 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 2)  // TH bf16 coff2 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 2)  // TH fp16 coff1 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 2)  // TH fp16 coff2 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(1, 0, 1, 2, 1)  // TH bf16 coff1 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 1)  // TH bf16 coff2 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 1)  // TH fp16 coff1 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 1)  // TH fp16 coff2 rot2 cache1
         // BSH layout (layout bit = 0)
         // LAUNCH_COMPRESSOR_KEY(0, 0, 1, 2, 2)  // BSH bf16 coff1 rot2 cache2
         // LAUNCH_COMPRESSOR_KEY(0, 0, 2, 2, 2)  // BSH bf16 coff2 rot2 cache2
