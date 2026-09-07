@@ -135,40 +135,46 @@ public:
         auto &cache = deviceCaches[static_cast<int64_t>(device.index())];
         auto iter = cache.slots.find(key);
         if (iter != cache.slots.end()) {
-            return cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
+            return SlabTensor(cache, iter->second, tilingSize);
         }
 
+        // A tiling buffer address is consumed asynchronously by the kernel that
+        // is launched right after this call, so the cache must never hand out a
+        // temporary tensor whose storage can be freed/reused before that kernel
+        // completes. Long chunked-prefill / MTP runs keep producing distinct
+        // tiling configs (the cache key covers the whole tiling data, not just
+        // the template bits), so the first 512-entry slab fills up and the old
+        // one-shot at::empty fallback used to be released/reused while the async
+        // kernel was still reading it -> MTE errors or silently wrong tiling
+        // parameters. Instead we append another persistent fixed-address slab
+        // (kept alive for the process lifetime) whenever the current one is full.
         const bool isCapturing = IsNpuGraphCapturing();
-        if (cache.nextSlot >= MAX_TILING_CACHE_ENTRIES) {
-            TORCH_CHECK(!isCapturing, opName,
-                        ": the current tiling configuration is not cached and the 512-entry cache is full; "
-                        "NPU graph capture cannot use a one-shot tiling address");
-            auto tilingTensor = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
-            CopyTo_(tilingTensor, tilingData, opName);
-            return tilingTensor;
+        if (isCapturing) {
+            TORCH_CHECK(false, opName,
+                        ": the current tiling configuration was not warmed up before NPU graph capture; run one eager "
+                        "warmup with the same tensor shapes, dtypes, optional inputs, and attributes");
         }
-
-        if (!cache.buffer.defined()) {
-            TORCH_CHECK(!isCapturing, opName,
-                        ": run one eager warmup with the same configuration before NPU graph capture to initialize "
-                        "the tiling cache");
-            cache.buffer =
-                at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, at::TensorOptions().device(device).dtype(at::kByte));
-        } else {
-            TORCH_CHECK(!isCapturing, opName,
-                        ": the current tiling configuration is not cached; run one eager warmup with the same tensor "
-                        "shapes, dtypes, optional inputs, and attributes before NPU graph capture");
+        if (cache.slabs.empty() || (cache.nextSlot % MAX_TILING_CACHE_ENTRIES) == 0) {
+            cache.slabs.emplace_back(
+                at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, at::TensorOptions().device(device).dtype(at::kByte)));
         }
-
-        const int64_t slot = cache.nextSlot;
-        auto cachedTiling = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
+        const int64_t slot = cache.nextSlot++;
+        auto cachedTiling = SlabTensor(cache, static_cast<uint64_t>(slot), tilingSize);
         CopyTo_(cachedTiling, tilingData, opName);
-        cache.slots.emplace(std::move(key), slot);
-        cache.nextSlot++;
+        cache.slots.emplace(std::move(key), static_cast<uint64_t>(slot));
         return cachedTiling;
     }
 
 private:
+    struct DeviceCache;  // defined below; SlabTensor references it by reference
+
+    static at::Tensor SlabTensor(const DeviceCache &cache, uint64_t slot, int64_t tilingSize)
+    {
+        const size_t slabIdx = static_cast<size_t>(slot / MAX_TILING_CACHE_ENTRIES);
+        const size_t within = static_cast<size_t>(slot % MAX_TILING_CACHE_ENTRIES);
+        return cache.slabs[slabIdx].narrow(0, static_cast<int64_t>(within) * tilingSize, tilingSize);
+    }
+
     static void CopyTo_(const at::Tensor &destination, const T &tilingData, const std::string &opName)
     {
         // Upload on the torch_npu current stream so the H2D copy is ordered with the
@@ -181,8 +187,8 @@ private:
         aclrtSynchronizeStream(stream);
     }
     struct DeviceCache {
-        at::Tensor buffer;
-        std::unordered_map<std::string, int64_t> slots;
+        std::vector<at::Tensor> slabs;
+        std::unordered_map<std::string, uint64_t> slots;  // key -> persistent global slot index
         int64_t nextSlot = 0;
     };
 };
