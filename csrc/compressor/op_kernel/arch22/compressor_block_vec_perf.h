@@ -938,8 +938,9 @@ __aicore__ inline void CompressorBlockVectorPerf<COMP>::SaveState(const LocalTen
         const uint32_t pad = constInfo_.blockSize > window ? constInfo_.blockSize - window + 2U : 0U;
         const uint32_t batchEnd = sliceInfo.bStartPos + sliceInfo.bSeqUsed;
         const uint32_t compressSeqIdx = Trunc(batchEnd, constInfo_.cmpRatio);
-        uint32_t writeSeqStartIdx =
-            compressSeqIdx > (coff_ - 1U) * constInfo_.cmpRatio ? compressSeqIdx - (coff_ - 1U) * constInfo_.cmpRatio : 0U;
+        uint32_t writeSeqStartIdx = compressSeqIdx > (coff_ - 1U) * constInfo_.cmpRatio
+                                        ? compressSeqIdx - (coff_ - 1U) * constInfo_.cmpRatio
+                                        : 0U;
         if (pad != 0U) {
             writeSeqStartIdx = batchEnd > pad ? min(writeSeqStartIdx, batchEnd - pad) : 0U;
         }
