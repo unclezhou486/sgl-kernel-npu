@@ -1606,8 +1606,8 @@ __simd_vf__ inline void SoftmaxDndBase512(__ubuf__ T *inputAddr, __ubuf__ float 
  * @param [out] dstTensor, output LocalTensor
  * @param [in] srcTensor, input LocalTensor
  * @param [in] RowSize, input rows
- * @param [in] vScBaseSize, input colums, should be 256 bytes aligned, the value is originN aligned to 64
- * @param [in] vScRealSize, input origin colums, support range: 0 < originN <= 128
+ * @param [in] vScBaseSize, input columns, should be 256 bytes aligned, the value is originN aligned to 64
+ * @param [in] vScRealSize, input origin columns, support range: 0 < originN <= 128
  * @param [in] scale, scale value
  * @param [in] minValue, minimum value
  */

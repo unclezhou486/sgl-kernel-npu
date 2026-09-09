@@ -556,7 +556,12 @@ def _make_inputs(
         else:
             capacities = [seq_len] * batch
             block_table, block_num, _ = _build_explicit_state_loc_table(
-                start_pos, capacities, state_block_size, coff, cmp_ratio, banks_per_batch=1
+                start_pos,
+                capacities,
+                state_block_size,
+                coff,
+                cmp_ratio,
+                banks_per_batch=1,
             )
     else:
         max_block = (max(start_pos) + seq_len + block_size - 1) // block_size
@@ -690,7 +695,9 @@ class TestCompressor(unittest.TestCase):
         # order clobbers the history before it is read.
         if not _is_arch35():
             self.skipTest("A5 request-bank ring layout only")
-        p = _make_inputs([8], 8, 2, 4, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, ring_size=8)
+        p = _make_inputs(
+            [8], 8, 2, 4, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, ring_size=8
+        )
         self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
 
     def test_ring_real_c4_cross_slice(self):
@@ -700,7 +707,9 @@ class TestCompressor(unittest.TestCase):
         # CommitState path to hold.
         if not _is_arch35():
             self.skipTest("A5 request-bank ring layout only")
-        p = _make_inputs([8], 32, 2, 4, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, ring_size=8)
+        p = _make_inputs(
+            [8], 32, 2, 4, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, ring_size=8
+        )
         self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
 
     def test_ring_real_c4_longseq(self):
@@ -708,7 +717,9 @@ class TestCompressor(unittest.TestCase):
         # CommitState path under real load (mm1-reservation / cross-db width).
         if not _is_arch35():
             self.skipTest("A5 request-bank ring layout only")
-        p = _make_inputs([8], 128, 2, 4, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, ring_size=8)
+        p = _make_inputs(
+            [8], 128, 2, 4, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, ring_size=8
+        )
         self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.bfloat16))
 
     def test_ring_real_c4_multi_round(self):
@@ -722,8 +733,20 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         batch, capacity, rounds, ring_size = 2, 8, 4, 8
-        p0 = _make_inputs([8, 16], capacity, coff, ratio, head_dim, hidden, 2, "TH",
-                          torch.bfloat16, batch, 16, ring_size=ring_size)
+        p0 = _make_inputs(
+            [8, 16],
+            capacity,
+            coff,
+            ratio,
+            head_dim,
+            hidden,
+            2,
+            "TH",
+            torch.bfloat16,
+            batch,
+            16,
+            ring_size=ring_size,
+        )
         kv_state = p0["kv_state"]
         score_state = p0["score_state"]
         state_npu = p0["state_cache"].clone().npu()
@@ -736,26 +759,67 @@ class TestCompressor(unittest.TestCase):
         cu_list = [i * capacity for i in range(batch + 1)]
         starts = [8, 16]
         for r in range(rounds):
-            p = _make_inputs(starts, capacity, coff, ratio, head_dim, hidden, 2, "TH",
-                             torch.bfloat16, batch, 16, seed=3000 + r, ring_size=ring_size)
+            p = _make_inputs(
+                starts,
+                capacity,
+                coff,
+                ratio,
+                head_dim,
+                hidden,
+                2,
+                "TH",
+                torch.bfloat16,
+                batch,
+                16,
+                seed=3000 + r,
+                ring_size=ring_size,
+            )
             update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
             update_score = torch.zeros_like(score_state, dtype=torch.bool)
             ref, mask = _reference_compressor(
-                p["x"], p0["wkv"], p0["wgate"], kv_state, score_state,
-                update_kv, update_score, p0["ape"], p0["norm_weight"],
-                p["rope_sin"], p["rope_cos"],
-                block_table=p0["block_table"], cu_seqlens=cu_list,
-                seqused=[capacity, capacity], start_pos=starts,
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff,
-                norm_eps=1e-6, rotary_mode=2, cache_mode=2)
+                p["x"],
+                p0["wkv"],
+                p0["wgate"],
+                kv_state,
+                score_state,
+                update_kv,
+                update_score,
+                p0["ape"],
+                p0["norm_weight"],
+                p["rope_sin"],
+                p["rope_cos"],
+                block_table=p0["block_table"],
+                cu_seqlens=cu_list,
+                seqused=[capacity, capacity],
+                start_pos=starts,
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+            )
             out = torch.ops.npu.compressor(
-                p["x"].npu(), wkv_npu, wgate_npu, state_npu, ape_npu, norm_npu,
-                p["rope_sin"].npu(), p["rope_cos"].npu(),
-                state_block_table=block_table, cu_seqlens=cu_t,
+                p["x"].npu(),
+                wkv_npu,
+                wgate_npu,
+                state_npu,
+                ape_npu,
+                norm_npu,
+                p["rope_sin"].npu(),
+                p["rope_cos"].npu(),
+                state_block_table=block_table,
+                cu_seqlens=cu_t,
                 seqused=torch.tensor([capacity, capacity], dtype=torch.int32).npu(),
                 start_pos=torch.tensor(starts, dtype=torch.int32).npu(),
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+                state_cache_stride_dim0=0,
+            )
             torch_npu.npu.synchronize()
             mask_t = torch.from_numpy(np.asarray(mask))
             if mask_t.numel():
@@ -776,8 +840,20 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         capacity, ring_size = 8, 8
-        p0 = _make_inputs([8], capacity, coff, ratio, head_dim, hidden, 2, "TH",
-                          torch.bfloat16, 1, 16, ring_size=ring_size)
+        p0 = _make_inputs(
+            [8],
+            capacity,
+            coff,
+            ratio,
+            head_dim,
+            hidden,
+            2,
+            "TH",
+            torch.bfloat16,
+            1,
+            16,
+            ring_size=ring_size,
+        )
         wkv_npu = p0["wkv"].npu()
         wgate_npu = p0["wgate"].npu()
         ape_npu = p0["ape"].npu()
@@ -792,34 +868,76 @@ class TestCompressor(unittest.TestCase):
             state_npu = init_state.clone()
             calls = [(8, 4), (8 + accepted, capacity - accepted)]
             for r, (start, valid) in enumerate(calls):
-                p = _make_inputs([start], valid, coff, ratio, head_dim, hidden, 2, "TH",
-                                 torch.bfloat16, 1, 16, seed=4000 + accepted * 10 + r,
-                                 ring_size=ring_size)
+                p = _make_inputs(
+                    [start],
+                    valid,
+                    coff,
+                    ratio,
+                    head_dim,
+                    hidden,
+                    2,
+                    "TH",
+                    torch.bfloat16,
+                    1,
+                    16,
+                    seed=4000 + accepted * 10 + r,
+                    ring_size=ring_size,
+                )
                 cu_t = p["cu_seqlens"].npu()
                 cu_list = p["cu_seqlens"].tolist()
                 update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
                 update_score = torch.zeros_like(score_state, dtype=torch.bool)
                 ref, mask = _reference_compressor(
-                    p["x"], p0["wkv"], p0["wgate"], kv_state, score_state,
-                    update_kv, update_score, p0["ape"], p0["norm_weight"],
-                    p["rope_sin"], p["rope_cos"],
-                    block_table=p0["block_table"], cu_seqlens=cu_list,
-                    seqused=[valid], start_pos=[start],
-                    rope_head_dim=64, cmp_ratio=ratio, coff=coff,
-                    norm_eps=1e-6, rotary_mode=2, cache_mode=2)
+                    p["x"],
+                    p0["wkv"],
+                    p0["wgate"],
+                    kv_state,
+                    score_state,
+                    update_kv,
+                    update_score,
+                    p0["ape"],
+                    p0["norm_weight"],
+                    p["rope_sin"],
+                    p["rope_cos"],
+                    block_table=p0["block_table"],
+                    cu_seqlens=cu_list,
+                    seqused=[valid],
+                    start_pos=[start],
+                    rope_head_dim=64,
+                    cmp_ratio=ratio,
+                    coff=coff,
+                    norm_eps=1e-6,
+                    rotary_mode=2,
+                    cache_mode=2,
+                )
                 out = torch.ops.npu.compressor(
-                    p["x"].npu(), wkv_npu, wgate_npu, state_npu, ape_npu, norm_npu,
-                    p["rope_sin"].npu(), p["rope_cos"].npu(),
-                    state_block_table=block_table, cu_seqlens=cu_t,
+                    p["x"].npu(),
+                    wkv_npu,
+                    wgate_npu,
+                    state_npu,
+                    ape_npu,
+                    norm_npu,
+                    p["rope_sin"].npu(),
+                    p["rope_cos"].npu(),
+                    state_block_table=block_table,
+                    cu_seqlens=cu_t,
                     seqused=torch.tensor([valid], dtype=torch.int32).npu(),
                     start_pos=torch.tensor([start], dtype=torch.int32).npu(),
-                    rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                    rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+                    rope_head_dim=64,
+                    cmp_ratio=ratio,
+                    coff=coff,
+                    norm_eps=1e-6,
+                    rotary_mode=2,
+                    cache_mode=2,
+                    state_cache_stride_dim0=0,
+                )
                 torch_npu.npu.synchronize()
                 mask_t = torch.from_numpy(np.asarray(mask))
                 if mask_t.numel():
                     diff = (out.cpu() - ref).abs()[mask_t]
-                    self.assertLess(diff.max().item(), 0.05, f"mtp a{accepted} r{r}: output")
+                    self.assertLess(
+                        diff.max().item(), 0.05, f"mtp a{accepted} r{r}: output"
+                    )
                 expected = torch.cat([kv_state, score_state], dim=-1)
                 sdiff = (state_npu.cpu() - expected).abs().max().item()
                 self.assertLess(sdiff, 1e-2, f"mtp a{accepted} r{r}: state")
@@ -833,9 +951,20 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         batch, capacity, rounds, ring_size = 256, 8, 2, 8
-        p0 = _make_inputs(list(range(8, 8 + batch * capacity, capacity)), capacity,
-                          coff, ratio, head_dim, hidden, 2, "TH", torch.bfloat16,
-                          batch, ring_size, ring_size=ring_size)
+        p0 = _make_inputs(
+            list(range(8, 8 + batch * capacity, capacity)),
+            capacity,
+            coff,
+            ratio,
+            head_dim,
+            hidden,
+            2,
+            "TH",
+            torch.bfloat16,
+            batch,
+            ring_size,
+            ring_size=ring_size,
+        )
         kv_state = p0["kv_state"]
         score_state = p0["score_state"]
         state_npu = p0["state_cache"].clone().npu()
@@ -848,26 +977,67 @@ class TestCompressor(unittest.TestCase):
         cu_list = [i * capacity for i in range(batch + 1)]
         starts = list(range(8, 8 + batch * capacity, capacity))
         for r in range(rounds):
-            p = _make_inputs(starts, capacity, coff, ratio, head_dim, hidden, 2, "TH",
-                             torch.bfloat16, batch, ring_size, seed=5000 + r, ring_size=ring_size)
+            p = _make_inputs(
+                starts,
+                capacity,
+                coff,
+                ratio,
+                head_dim,
+                hidden,
+                2,
+                "TH",
+                torch.bfloat16,
+                batch,
+                ring_size,
+                seed=5000 + r,
+                ring_size=ring_size,
+            )
             update_kv = torch.zeros_like(kv_state, dtype=torch.bool)
             update_score = torch.zeros_like(score_state, dtype=torch.bool)
             ref, mask = _reference_compressor(
-                p["x"], p0["wkv"], p0["wgate"], kv_state, score_state,
-                update_kv, update_score, p0["ape"], p0["norm_weight"],
-                p["rope_sin"], p["rope_cos"],
-                block_table=p0["block_table"], cu_seqlens=cu_list,
-                seqused=[capacity] * batch, start_pos=starts,
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff,
-                norm_eps=1e-6, rotary_mode=2, cache_mode=2)
+                p["x"],
+                p0["wkv"],
+                p0["wgate"],
+                kv_state,
+                score_state,
+                update_kv,
+                update_score,
+                p0["ape"],
+                p0["norm_weight"],
+                p["rope_sin"],
+                p["rope_cos"],
+                block_table=p0["block_table"],
+                cu_seqlens=cu_list,
+                seqused=[capacity] * batch,
+                start_pos=starts,
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+            )
             out = torch.ops.npu.compressor(
-                p["x"].npu(), wkv_npu, wgate_npu, state_npu, ape_npu, norm_npu,
-                p["rope_sin"].npu(), p["rope_cos"].npu(),
-                state_block_table=block_table, cu_seqlens=cu_t,
+                p["x"].npu(),
+                wkv_npu,
+                wgate_npu,
+                state_npu,
+                ape_npu,
+                norm_npu,
+                p["rope_sin"].npu(),
+                p["rope_cos"].npu(),
+                state_block_table=block_table,
+                cu_seqlens=cu_t,
                 seqused=torch.tensor([capacity] * batch, dtype=torch.int32).npu(),
                 start_pos=torch.tensor(starts, dtype=torch.int32).npu(),
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+                state_cache_stride_dim0=0,
+            )
             torch_npu.npu.synchronize()
             mask_t = torch.from_numpy(np.asarray(mask))
             expected = torch.cat([kv_state, score_state], dim=-1)
@@ -888,32 +1058,70 @@ class TestCompressor(unittest.TestCase):
         # also checks whether the same dbIdx-reuse race exists on A3.
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         batch = 256
-        p = _make_inputs([8] * batch, 8, coff, ratio, head_dim, hidden, 2, "TH",
-                         torch.bfloat16, batch, 16)
+        p = _make_inputs(
+            [8] * batch,
+            8,
+            coff,
+            ratio,
+            head_dim,
+            hidden,
+            2,
+            "TH",
+            torch.bfloat16,
+            batch,
+            16,
+        )
         # diagnostic: locate the bad region (output vs state write-back)
         kv = p["kv_state"].clone()
         sc = p["score_state"].clone()
         ref, mask = _reference_compressor(
-            p["x"], p["wkv"], p["wgate"], kv, sc,
+            p["x"],
+            p["wkv"],
+            p["wgate"],
+            kv,
+            sc,
             torch.zeros_like(kv, dtype=torch.bool),
             torch.zeros_like(sc, dtype=torch.bool),
-            p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+            p["ape"],
+            p["norm_weight"],
+            p["rope_sin"],
+            p["rope_cos"],
             block_table=p["block_table"],
-            cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
-            seqused=p["seqused"], start_pos=p["start_pos"],
-            rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-            rotary_mode=2, cache_mode=2)
+            cu_seqlens=(
+                p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None
+            ),
+            seqused=p["seqused"],
+            start_pos=p["start_pos"],
+            rope_head_dim=64,
+            cmp_ratio=ratio,
+            coff=coff,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+        )
         mask_t = torch.from_numpy(np.asarray(mask))
         state_npu = p["state_cache"].clone().npu()
         out = torch.ops.npu.compressor(
-            p["x"].npu(), p["wkv"].npu(), p["wgate"].npu(), state_npu,
-            p["ape"].npu(), p["norm_weight"].npu(), p["rope_sin"].npu(), p["rope_cos"].npu(),
+            p["x"].npu(),
+            p["wkv"].npu(),
+            p["wgate"].npu(),
+            state_npu,
+            p["ape"].npu(),
+            p["norm_weight"].npu(),
+            p["rope_sin"].npu(),
+            p["rope_cos"].npu(),
             state_block_table=p["block_table"].npu(),
             cu_seqlens=p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None,
             seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
             start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
-            rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-            rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+            rope_head_dim=64,
+            cmp_ratio=ratio,
+            coff=coff,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+            state_cache_stride_dim0=0,
+        )
         torch_npu.npu.synchronize()
         d = (out.cpu() - ref).abs()[mask_t]
         self._assert_ok(d.max().item() if d.numel() > 0 else 0.0)
@@ -925,32 +1133,71 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 request-bank ring layout only")
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         batch = 64
-        p = _make_inputs(list(range(8, 8 + batch * 8, 8)), 8, coff, ratio, head_dim, hidden, 2, "TH",
-                         torch.bfloat16, batch, 8, ring_size=8)
+        p = _make_inputs(
+            list(range(8, 8 + batch * 8, 8)),
+            8,
+            coff,
+            ratio,
+            head_dim,
+            hidden,
+            2,
+            "TH",
+            torch.bfloat16,
+            batch,
+            8,
+            ring_size=8,
+        )
         # diagnostic: check state write-back too (batch64 previously only checked output)
         kv = p["kv_state"].clone()
         sc = p["score_state"].clone()
         ref, mask = _reference_compressor(
-            p["x"], p["wkv"], p["wgate"], kv, sc,
+            p["x"],
+            p["wkv"],
+            p["wgate"],
+            kv,
+            sc,
             torch.zeros_like(kv, dtype=torch.bool),
             torch.zeros_like(sc, dtype=torch.bool),
-            p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+            p["ape"],
+            p["norm_weight"],
+            p["rope_sin"],
+            p["rope_cos"],
             block_table=p["block_table"],
-            cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
-            seqused=p["seqused"], start_pos=p["start_pos"],
-            rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-            rotary_mode=2, cache_mode=2)
+            cu_seqlens=(
+                p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None
+            ),
+            seqused=p["seqused"],
+            start_pos=p["start_pos"],
+            rope_head_dim=64,
+            cmp_ratio=ratio,
+            coff=coff,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+        )
         mask_t = torch.from_numpy(np.asarray(mask))
         state_npu = p["state_cache"].clone().npu()
         out = torch.ops.npu.compressor(
-            p["x"].npu(), p["wkv"].npu(), p["wgate"].npu(), state_npu,
-            p["ape"].npu(), p["norm_weight"].npu(), p["rope_sin"].npu(), p["rope_cos"].npu(),
+            p["x"].npu(),
+            p["wkv"].npu(),
+            p["wgate"].npu(),
+            state_npu,
+            p["ape"].npu(),
+            p["norm_weight"].npu(),
+            p["rope_sin"].npu(),
+            p["rope_cos"].npu(),
             state_block_table=p["block_table"].npu(),
             cu_seqlens=p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None,
             seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
             start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
-            rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-            rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+            rope_head_dim=64,
+            cmp_ratio=ratio,
+            coff=coff,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+            state_cache_stride_dim0=0,
+        )
         torch_npu.npu.synchronize()
         d = (out.cpu() - ref).abs()[mask_t]
         self._assert_ok(d.max().item() if d.numel() > 0 else 0.0)
@@ -963,31 +1210,70 @@ class TestCompressor(unittest.TestCase):
             self.skipTest("A5 only")
         coff, ratio, head_dim, hidden = 1, 128, 128, 1024
         batch = 4
-        p = _make_inputs(list(range(8, 8 + batch * 8, 8)), 8, coff, ratio, head_dim, hidden, 2, "TH",
-                         torch.bfloat16, batch, 8, ring_size=8)
+        p = _make_inputs(
+            list(range(8, 8 + batch * 8, 8)),
+            8,
+            coff,
+            ratio,
+            head_dim,
+            hidden,
+            2,
+            "TH",
+            torch.bfloat16,
+            batch,
+            8,
+            ring_size=8,
+        )
         kv = p["kv_state"].clone()
         sc = p["score_state"].clone()
         ref, mask = _reference_compressor(
-            p["x"], p["wkv"], p["wgate"], kv, sc,
+            p["x"],
+            p["wkv"],
+            p["wgate"],
+            kv,
+            sc,
             torch.zeros_like(kv, dtype=torch.bool),
             torch.zeros_like(sc, dtype=torch.bool),
-            p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+            p["ape"],
+            p["norm_weight"],
+            p["rope_sin"],
+            p["rope_cos"],
             block_table=p["block_table"],
-            cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
-            seqused=p["seqused"], start_pos=p["start_pos"],
-            rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-            rotary_mode=2, cache_mode=2)
+            cu_seqlens=(
+                p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None
+            ),
+            seqused=p["seqused"],
+            start_pos=p["start_pos"],
+            rope_head_dim=64,
+            cmp_ratio=ratio,
+            coff=coff,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+        )
         mask_t = torch.from_numpy(np.asarray(mask))
         state_npu = p["state_cache"].clone().npu()
         out = torch.ops.npu.compressor(
-            p["x"].npu(), p["wkv"].npu(), p["wgate"].npu(), state_npu,
-            p["ape"].npu(), p["norm_weight"].npu(), p["rope_sin"].npu(), p["rope_cos"].npu(),
+            p["x"].npu(),
+            p["wkv"].npu(),
+            p["wgate"].npu(),
+            state_npu,
+            p["ape"].npu(),
+            p["norm_weight"].npu(),
+            p["rope_sin"].npu(),
+            p["rope_cos"].npu(),
             state_block_table=p["block_table"].npu(),
             cu_seqlens=p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None,
             seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
             start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
-            rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-            rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+            rope_head_dim=64,
+            cmp_ratio=ratio,
+            coff=coff,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+            state_cache_stride_dim0=0,
+        )
         torch_npu.npu.synchronize()
         d = (out.cpu() - ref).abs()[mask_t]
         self._assert_ok(d.max().item() if d.numel() > 0 else 0.0)
@@ -1017,8 +1303,18 @@ class TestCompressor(unittest.TestCase):
             miss_cases
         ):
             p = _make_inputs(
-                sp, seq_len, coff, ratio, head, hidden, cmode, "TH",
-                torch.bfloat16, 1, 16, seed=8000 + i,
+                sp,
+                seq_len,
+                coff,
+                ratio,
+                head,
+                hidden,
+                cmode,
+                "TH",
+                torch.bfloat16,
+                1,
+                16,
+                seed=8000 + i,
             )
             self._assert_ok(_run_case(p, c2, r2, h2, cmode, torch.bfloat16))
 
@@ -1041,34 +1337,74 @@ class TestCompressor(unittest.TestCase):
             ([200], 129, 1, 128, 512, 1024, 2, 1, 128, 512),
         ]
         pending = []
-        for i, (sp, seq_len, coff, ratio, head, hidden, cmode, c2, r2, h2) in enumerate(cases):
-            p = _make_inputs(sp, seq_len, coff, ratio, head, hidden, cmode, "TH",
-                             torch.bfloat16, 1, 16, seed=8000 + i)
+        for i, (sp, seq_len, coff, ratio, head, hidden, cmode, c2, r2, h2) in enumerate(
+            cases
+        ):
+            p = _make_inputs(
+                sp,
+                seq_len,
+                coff,
+                ratio,
+                head,
+                hidden,
+                cmode,
+                "TH",
+                torch.bfloat16,
+                1,
+                16,
+                seed=8000 + i,
+            )
             kv = p["kv_state"].clone()
             sc = p["score_state"].clone()
             ref, mask = _reference_compressor(
-                p["x"], p["wkv"], p["wgate"], kv, sc,
+                p["x"],
+                p["wkv"],
+                p["wgate"],
+                kv,
+                sc,
                 torch.zeros_like(kv, dtype=torch.bool),
                 torch.zeros_like(sc, dtype=torch.bool),
-                p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+                p["ape"],
+                p["norm_weight"],
+                p["rope_sin"],
+                p["rope_cos"],
                 block_table=p["block_table"],
-                cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
-                seqused=p["seqused"], start_pos=p["start_pos"],
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=cmode,
+                cu_seqlens=(
+                    p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None
+                ),
+                seqused=p["seqused"],
+                start_pos=p["start_pos"],
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=cmode,
             )
             mask_t = torch.from_numpy(np.asarray(mask))
             state_npu = p["state_cache"].clone().npu()
             out = torch.ops.npu.compressor(
-                p["x"].npu(), p["wkv"].npu(), p["wgate"].npu(), state_npu,
-                p["ape"].npu(), p["norm_weight"].npu(),
-                p["rope_sin"].npu(), p["rope_cos"].npu(),
+                p["x"].npu(),
+                p["wkv"].npu(),
+                p["wgate"].npu(),
+                state_npu,
+                p["ape"].npu(),
+                p["norm_weight"].npu(),
+                p["rope_sin"].npu(),
+                p["rope_cos"].npu(),
                 state_block_table=p["block_table"].npu(),
-                cu_seqlens=p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None,
+                cu_seqlens=(
+                    p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None
+                ),
                 seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
                 start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=cmode, state_cache_stride_dim0=0,
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=cmode,
+                state_cache_stride_dim0=0,
             )
             pending.append((out, ref, mask_t))
         torch_npu.npu.synchronize()
@@ -1086,7 +1422,9 @@ class TestCompressor(unittest.TestCase):
         # is not ordered with the kernel stream makes replays diverge from the CPU
         # reference and acceptance dies. Guards the stream-ordered aclrtMemcpyAsync
         # CopyTo_ (and would catch a regression back to the raw default-stream copy).
-        p = _make_inputs([200], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, seed=12345)
+        p = _make_inputs(
+            [200], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 1, 16, seed=12345
+        )
 
         x_n = p["x"].clone().npu()
         wkv_n = p["wkv"].clone().npu()
@@ -1111,9 +1449,19 @@ class TestCompressor(unittest.TestCase):
 
         def _call(state_n):
             return torch.ops.npu.compressor(
-                x_n, wkv_n, wgate_n, state_n, ape_n, norm_n, sine_n, cose_n,
-                state_block_table=tbl_n, cu_seqlens=cu_n, seqused=used_n,
-                start_pos=start_n, **kw,
+                x_n,
+                wkv_n,
+                wgate_n,
+                state_n,
+                ape_n,
+                norm_n,
+                sine_n,
+                cose_n,
+                state_block_table=tbl_n,
+                cu_seqlens=cu_n,
+                seqused=used_n,
+                start_pos=start_n,
+                **kw,
             )
 
         state2 = p["state_cache"].clone().npu()
@@ -1134,21 +1482,35 @@ class TestCompressor(unittest.TestCase):
         # A tiling upload not ordered with the kernel stream breaks these -> FAIL.
         for step in range(10):
             gen = torch.Generator().manual_seed(2000 + step)
-            x_n.copy_((torch.randn(p["x"].shape, generator=gen) * 0.02).to(p["x"].dtype))
+            x_n.copy_(
+                (torch.randn(p["x"].shape, generator=gen) * 0.02).to(p["x"].dtype)
+            )
             state2.copy_(p["state_cache"])
             torch_npu.npu.synchronize()
             g.replay()
             torch_npu.npu.synchronize()
             ref, mask2 = _reference_compressor(
-                x_n.cpu(), p["wkv"], p["wgate"],
-                p["kv_state"].clone(), p["score_state"].clone(),
+                x_n.cpu(),
+                p["wkv"],
+                p["wgate"],
+                p["kv_state"].clone(),
+                p["score_state"].clone(),
                 torch.zeros_like(p["kv_state"], dtype=torch.bool),
                 torch.zeros_like(p["score_state"], dtype=torch.bool),
-                p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
-                block_table=p["block_table"], cu_seqlens=p["cu_seqlens"].tolist(),
-                seqused=p["seqused"], start_pos=p["start_pos"],
-                rope_head_dim=64, cmp_ratio=128, coff=1, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=2,
+                p["ape"],
+                p["norm_weight"],
+                p["rope_sin"],
+                p["rope_cos"],
+                block_table=p["block_table"],
+                cu_seqlens=p["cu_seqlens"].tolist(),
+                seqused=p["seqused"],
+                start_pos=p["start_pos"],
+                rope_head_dim=64,
+                cmp_ratio=128,
+                coff=1,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
             )
             mask_t = torch.from_numpy(np.asarray(mask2)).bool()
             if mask_t.numel() == 0:
@@ -1160,7 +1522,8 @@ class TestCompressor(unittest.TestCase):
                 f"step {step}: NaN in graph replay (tiling upload broken)",
             )
             self.assertLess(
-                (og - rf).abs().max().item(), 0.05,
+                (og - rf).abs().max().item(),
+                0.05,
                 f"step {step}: graph replay diverged from reference (tiling upload broken)",
             )
 
@@ -1172,13 +1535,25 @@ class TestCompressor(unittest.TestCase):
         # aclrtMemcpyAsync CopyTo_: prefill with a large batch must stay correct.
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         cases = [
-            ([8] * 64, 16, 64),    # tokenSize 1024, loopTimes 4
+            ([8] * 64, 16, 64),  # tokenSize 1024, loopTimes 4
             ([8] * 128, 16, 128),  # tokenSize 2048, loopTimes 8
-            ([8] * 256, 8, 256),   # tokenSize 2048, loopTimes 8
+            ([8] * 256, 8, 256),  # tokenSize 2048, loopTimes 8
         ]
         for start_pos, seq_len, batch in cases:
-            p = _make_inputs(start_pos, seq_len, coff, ratio, head_dim, hidden, 2,
-                             "TH", torch.bfloat16, batch, 16, seed=41000)
+            p = _make_inputs(
+                start_pos,
+                seq_len,
+                coff,
+                ratio,
+                head_dim,
+                hidden,
+                2,
+                "TH",
+                torch.bfloat16,
+                batch,
+                16,
+                seed=41000,
+            )
             self._assert_ok(_run_case(p, coff, ratio, head_dim, 2, torch.bfloat16))
 
     def test_copyto_nosync_prefill_miss(self):
@@ -1194,37 +1569,78 @@ class TestCompressor(unittest.TestCase):
         # produce wrong output; aclrtMemcpyAsync on the current stream is ordered.
         coff, ratio, head_dim, hidden = 2, 4, 512, 1024
         cases = [
-            ([8] * 64, 16, 64),    # tokenSize 1024, loopTimes 4
+            ([8] * 64, 16, 64),  # tokenSize 1024, loopTimes 4
             ([8] * 128, 16, 128),  # tokenSize 2048, loopTimes 8
-            ([8] * 256, 8, 256),   # tokenSize 2048, loopTimes 8
+            ([8] * 256, 8, 256),  # tokenSize 2048, loopTimes 8
         ]
         pending = []
         for start_pos, seq_len, batch in cases:
-            p = _make_inputs(start_pos, seq_len, coff, ratio, head_dim, hidden, 2,
-                             "TH", torch.bfloat16, batch, 16, seed=53000)
+            p = _make_inputs(
+                start_pos,
+                seq_len,
+                coff,
+                ratio,
+                head_dim,
+                hidden,
+                2,
+                "TH",
+                torch.bfloat16,
+                batch,
+                16,
+                seed=53000,
+            )
             kv = p["kv_state"].clone()
             sc = p["score_state"].clone()
             ref, mask = _reference_compressor(
-                p["x"], p["wkv"], p["wgate"], kv, sc,
+                p["x"],
+                p["wkv"],
+                p["wgate"],
+                kv,
+                sc,
                 torch.zeros_like(kv, dtype=torch.bool),
                 torch.zeros_like(sc, dtype=torch.bool),
-                p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+                p["ape"],
+                p["norm_weight"],
+                p["rope_sin"],
+                p["rope_cos"],
                 block_table=p["block_table"],
-                cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
-                seqused=p["seqused"], start_pos=p["start_pos"],
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=2)
+                cu_seqlens=(
+                    p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None
+                ),
+                seqused=p["seqused"],
+                start_pos=p["start_pos"],
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+            )
             mask_t = torch.from_numpy(np.asarray(mask))
             state_npu = p["state_cache"].clone().npu()
             out = torch.ops.npu.compressor(
-                p["x"].npu(), p["wkv"].npu(), p["wgate"].npu(), state_npu,
-                p["ape"].npu(), p["norm_weight"].npu(), p["rope_sin"].npu(), p["rope_cos"].npu(),
+                p["x"].npu(),
+                p["wkv"].npu(),
+                p["wgate"].npu(),
+                state_npu,
+                p["ape"].npu(),
+                p["norm_weight"].npu(),
+                p["rope_sin"].npu(),
+                p["rope_cos"].npu(),
                 state_block_table=p["block_table"].npu(),
-                cu_seqlens=p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None,
+                cu_seqlens=(
+                    p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None
+                ),
                 seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
                 start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+                state_cache_stride_dim0=0,
+            )
             pending.append((out, ref, mask_t))
         torch_npu.npu.synchronize()
         for out, ref, mask_t in pending:
@@ -1246,20 +1662,47 @@ class TestCompressor(unittest.TestCase):
         cases = [([8] * 64, 16, 64), ([8] * 128, 16, 128)]
         pending = []
         for start_pos, seq_len, batch in cases:
-            p = _make_inputs(start_pos, seq_len, coff, ratio, head_dim, hidden, 2,
-                             "TH", torch.bfloat16, batch, 16, seed=55000)
+            p = _make_inputs(
+                start_pos,
+                seq_len,
+                coff,
+                ratio,
+                head_dim,
+                hidden,
+                2,
+                "TH",
+                torch.bfloat16,
+                batch,
+                16,
+                seed=55000,
+            )
             kv = p["kv_state"].clone()
             sc = p["score_state"].clone()
             ref, mask = _reference_compressor(
-                p["x"], p["wkv"], p["wgate"], kv, sc,
+                p["x"],
+                p["wkv"],
+                p["wgate"],
+                kv,
+                sc,
                 torch.zeros_like(kv, dtype=torch.bool),
                 torch.zeros_like(sc, dtype=torch.bool),
-                p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+                p["ape"],
+                p["norm_weight"],
+                p["rope_sin"],
+                p["rope_cos"],
                 block_table=p["block_table"],
-                cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
-                seqused=p["seqused"], start_pos=p["start_pos"],
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=2)
+                cu_seqlens=(
+                    p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None
+                ),
+                seqused=p["seqused"],
+                start_pos=p["start_pos"],
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+            )
             mask_t = torch.from_numpy(np.asarray(mask))
             x_n = p["x"].npu()
             wkv_n = p["wkv"].npu()
@@ -1279,11 +1722,26 @@ class TestCompressor(unittest.TestCase):
             s = torch_npu.npu.Stream()
             with torch_npu.npu.stream(s):
                 out = torch.ops.npu.compressor(
-                    x_n, wkv_n, wgate_n, state_npu, ape_n, norm_n, sine_n, cose_n,
-                    state_block_table=tbl_n, cu_seqlens=cu_n, seqused=used_n,
+                    x_n,
+                    wkv_n,
+                    wgate_n,
+                    state_npu,
+                    ape_n,
+                    norm_n,
+                    sine_n,
+                    cose_n,
+                    state_block_table=tbl_n,
+                    cu_seqlens=cu_n,
+                    seqused=used_n,
                     start_pos=start_n,
-                    rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                    rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+                    rope_head_dim=64,
+                    cmp_ratio=ratio,
+                    coff=coff,
+                    norm_eps=1e-6,
+                    rotary_mode=2,
+                    cache_mode=2,
+                    state_cache_stride_dim0=0,
+                )
             pending.append((out, ref, mask_t))
         torch_npu.npu.synchronize()
         for out, ref, mask_t in pending:
@@ -1292,8 +1750,20 @@ class TestCompressor(unittest.TestCase):
             d = (out.cpu() - ref).abs()[mask_t]
             self._assert_ok(d.max().item() if d.numel() > 0 else 0.0)
 
-    def _run_mtp_verify(self, ratio, coff, head_dim, hidden, batch, ndraft, accept,
-                        ring, start0, steps, tol=0.05):
+    def _run_mtp_verify(
+        self,
+        ratio,
+        coff,
+        head_dim,
+        hidden,
+        batch,
+        ndraft,
+        accept,
+        ring,
+        start0,
+        steps,
+        tol=0.05,
+    ):
         """Simulate MTP target-verify rounds on an in-place ring state.
 
         Every round compresses ``ndraft`` candidate rows starting at each
@@ -1309,11 +1779,11 @@ class TestCompressor(unittest.TestCase):
         ww = coff * head_dim
         wkv = (torch.randn(ww, hidden, generator=gen) * 0.02).to(torch.bfloat16)
         wgate = (torch.randn(ww, hidden, generator=gen) * 0.02).to(torch.bfloat16)
-        ape = (torch.randn(ratio, ww, generator=gen).float() * 0.01)
-        norm_weight = (torch.randn(head_dim, generator=gen).float() * 0.02 + 1.0)
+        ape = torch.randn(ratio, ww, generator=gen).float() * 0.01
+        norm_weight = torch.randn(head_dim, generator=gen).float() * 0.02 + 1.0
 
-        kv_cpu = (torch.randn(batch, ring, ww, generator=gen).float() * 0.01)
-        sc_cpu = (torch.randn(batch, ring, ww, generator=gen).float() * 0.01)
+        kv_cpu = torch.randn(batch, ring, ww, generator=gen).float() * 0.01
+        sc_cpu = torch.randn(batch, ring, ww, generator=gen).float() * 0.01
         block_table = torch.arange(batch, dtype=torch.int32)
         state_npu = torch.cat([kv_cpu, sc_cpu], dim=-1).clone().npu()
 
@@ -1327,41 +1797,74 @@ class TestCompressor(unittest.TestCase):
         def _xrow(r, pos):
             key = (r, pos)
             if key not in x_cache:
-                x_cache[key] = (torch.randn(hidden, generator=rng) * 0.02).to(torch.bfloat16)
+                x_cache[key] = (torch.randn(hidden, generator=rng) * 0.02).to(
+                    torch.bfloat16
+                )
             return x_cache[key]
 
         worst = 0.0
         for s in range(steps):
             committed = [start_r[r] + s * accept for r in range(batch)]
-            x = torch.stack([_xrow(r, committed[r] + j)
-                             for r in range(batch) for j in range(ndraft)])
+            x = torch.stack(
+                [
+                    _xrow(r, committed[r] + j)
+                    for r in range(batch)
+                    for j in range(ndraft)
+                ]
+            )
             cu = torch.arange(0, batch * ndraft + 1, ndraft, dtype=torch.int32)
             seqused = [ndraft] * batch
-            rope_sin = (torch.randn(rope_rows, 64, generator=rng).float() * 0.01)
-            rope_cos = (torch.ones(rope_rows, 64) +
-                        torch.randn(rope_rows, 64, generator=rng).float() * 0.01)
+            rope_sin = torch.randn(rope_rows, 64, generator=rng).float() * 0.01
+            rope_cos = (
+                torch.ones(rope_rows, 64)
+                + torch.randn(rope_rows, 64, generator=rng).float() * 0.01
+            )
 
             ref, ref_mask = _reference_compressor(
-                x, wkv, wgate, kv_cpu, sc_cpu,
+                x,
+                wkv,
+                wgate,
+                kv_cpu,
+                sc_cpu,
                 torch.zeros_like(kv_cpu, dtype=torch.bool),
                 torch.zeros_like(sc_cpu, dtype=torch.bool),
-                ape, norm_weight, rope_sin, rope_cos,
-                block_table=block_table, cu_seqlens=cu,
-                seqused=seqused, start_pos=committed,
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=2,
+                ape,
+                norm_weight,
+                rope_sin,
+                rope_cos,
+                block_table=block_table,
+                cu_seqlens=cu,
+                seqused=seqused,
+                start_pos=committed,
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
             )
             mask_t = torch.from_numpy(np.asarray(ref_mask))
 
             out = torch.ops.npu.compressor(
-                x.npu(), wkv.npu(), wgate.npu(), state_npu,
-                ape.npu(), norm_weight.npu(), rope_sin.npu(), rope_cos.npu(),
+                x.npu(),
+                wkv.npu(),
+                wgate.npu(),
+                state_npu,
+                ape.npu(),
+                norm_weight.npu(),
+                rope_sin.npu(),
+                rope_cos.npu(),
                 state_block_table=block_table.npu(),
                 cu_seqlens=cu.npu(),
                 seqused=torch.tensor(seqused, dtype=torch.int32).npu(),
                 start_pos=torch.tensor(committed, dtype=torch.int32).npu(),
-                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
-                rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0,
+                rope_head_dim=64,
+                cmp_ratio=ratio,
+                coff=coff,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
+                state_cache_stride_dim0=0,
             )
             torch_npu.npu.synchronize()
 
@@ -1374,12 +1877,18 @@ class TestCompressor(unittest.TestCase):
             state_cpu = torch.cat([kv_cpu, sc_cpu], dim=-1).float()
             st_diff = float((state_npu.cpu() - state_cpu).abs().max())
             worst = max(worst, md)
-            self.assertLess(md, tol,
-                            f"ratio{ratio} step {s} start={committed}: out diverged "
-                            f"(maxdiff={md}) from MTP reference")
-            self.assertLess(st_diff, tol,
-                            f"ratio{ratio} step {s} start={committed}: ring state "
-                            f"diverged (maxdiff={st_diff})")
+            self.assertLess(
+                md,
+                tol,
+                f"ratio{ratio} step {s} start={committed}: out diverged "
+                f"(maxdiff={md}) from MTP reference",
+            )
+            self.assertLess(
+                st_diff,
+                tol,
+                f"ratio{ratio} step {s} start={committed}: ring state "
+                f"diverged (maxdiff={st_diff})",
+            )
         return worst
 
     def test_mtp_verify_rollback(self):
@@ -1390,11 +1899,31 @@ class TestCompressor(unittest.TestCase):
         # now; before the fix the ring read stale/zero values and accuracy died.
         # C128: window 128 / ring 256; verify 3 candidates, accept 1, crossing
         # the 128 boundary re-reads positions like 125-127.
-        self._run_mtp_verify(ratio=128, coff=1, head_dim=128, hidden=1024,
-                             batch=2, ndraft=3, accept=1, ring=256, start0=125, steps=4)
+        self._run_mtp_verify(
+            ratio=128,
+            coff=1,
+            head_dim=128,
+            hidden=1024,
+            batch=2,
+            ndraft=3,
+            accept=1,
+            ring=256,
+            start0=125,
+            steps=4,
+        )
         # C4 (overlap, window 8): ring 16 under MTP; verify 5, accept 1.
-        self._run_mtp_verify(ratio=4, coff=2, head_dim=128, hidden=1024,
-                             batch=2, ndraft=5, accept=1, ring=16, start0=7, steps=5)
+        self._run_mtp_verify(
+            ratio=4,
+            coff=2,
+            head_dim=128,
+            hidden=1024,
+            batch=2,
+            ndraft=5,
+            accept=1,
+            ring=16,
+            start0=7,
+            steps=5,
+        )
 
 
 if __name__ == "__main__":
