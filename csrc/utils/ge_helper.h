@@ -103,6 +103,14 @@ constexpr size_t DIM2 = 2;
 constexpr size_t DIM3 = 3;
 constexpr size_t DIM4 = 4;
 constexpr int64_t MAX_TILING_CACHE_ENTRIES = 512;
+// Upper bound on distinct tiling configs: every cache miss allocates a new
+// persistent slot (never recycled), so without a cap a run that keeps
+// producing novel configs would grow memory without bound. Reaching the cap
+// fails loudly instead of silently reusing an address that an async/graph
+// kernel may still read. Bump MAX_TILING_CACHE_BLOCKS if a real workload
+// genuinely needs more distinct configs.
+constexpr int64_t MAX_TILING_CACHE_BLOCKS = 256;
+constexpr int64_t MAX_TILING_CACHE_ENTRIES_TOTAL = MAX_TILING_CACHE_ENTRIES * MAX_TILING_CACHE_BLOCKS;
 
 inline bool IsNpuGraphCapturing()
 {
@@ -154,6 +162,10 @@ public:
             TORCH_CHECK(false, opName,
                         ": the current tiling configuration was not warmed up before NPU graph capture; run one eager "
                         "warmup with the same tensor shapes, dtypes, optional inputs, and attributes");
+        }
+        if (cache.nextSlot >= MAX_TILING_CACHE_ENTRIES_TOTAL) {
+            TORCH_CHECK(false, opName, ": tiling cache reached its cap of ", MAX_TILING_CACHE_ENTRIES_TOTAL,
+                        " distinct configs; raise MAX_TILING_CACHE_BLOCKS in ge_helper.h if this is a real workload");
         }
         if (cache.slabs.empty() || (cache.nextSlot % MAX_TILING_CACHE_ENTRIES) == 0) {
             cache.slabs.emplace_back(MakeSlab_(device, tilingSize * MAX_TILING_CACHE_ENTRIES));
