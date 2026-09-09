@@ -225,7 +225,7 @@ const std::vector<int> COFF {1, 2};
 const std::vector<int> CMP_RATIO {2, 4, 8, 16, 32, 64, 128};
 const std::vector<int> ROTARY_MODE {1, 2};
 const std::vector<uint32_t> HEAD_DIM {128, 512};
-const std::vector<int> CACHE_MODE {1, 2};
+const std::vector<int> CACHE_MODE {2};  // sglang A5 只使用 cache_mode=2 (CYCLE)
 
 enum class ROTARY_MODE:uint8_t {
     HALF = 1,

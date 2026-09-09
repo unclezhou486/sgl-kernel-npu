@@ -228,12 +228,12 @@ __aicore__ inline void CompressorKernelFullLoad<COMP>::SkipInvalidBatch(BatchInf
         }
     }
     batchInfo.remSeqCnt = batchInfo.seqCnt;
-    if (tools_.isExistSeqUsed_) {
-        batchInfo.seqUsedCnt = tools_.GetSeqUsed(batchInfo.bIdx);
-    } else {
-        batchInfo.seqUsedCnt = batchInfo.seqCnt;
-    }
     if (batchInfo.bIdx < constInfo.batchSize) {
+        if (tools_.isExistSeqUsed_) {
+            batchInfo.seqUsedCnt = tools_.GetSeqUsed(batchInfo.bIdx);
+        } else {
+            batchInfo.seqUsedCnt = batchInfo.seqCnt;
+        }
         batchInfo.bStartPos = tools_.GetStartPos(batchInfo.bIdx);
         batchInfo.sIdx = 0;
         batchInfo.headHolderSeq = batchInfo.bStartPos & (constInfo.cmpRatio - 1);

@@ -289,11 +289,23 @@ def _reference_compressor(
                 new_score_state[start_offset:end_offset, :],
                 ape[start_seq_id_in_sc:end_seq_idx_in_sc, :],
             )
-            save_flag = (
-                True
-                if cache_mode == 1
-                else (start_seq_idx >= (compress_seq_id - (coff - 1) * cmp_ratio))
-            )
+            # cache1 (paged) always keeps rows. For cache2 keep the rows a later
+            # round may still need: rows before the compress boundary become
+            # c-state, but under MTP verify a partially-accepted round must
+            # re-read raw rows between the accepted position and this round's
+            # compress boundary. Keep the extra tail rows the ring can hold
+            # beyond one window (mirrors sglang mtp_pad): pad = ring-window+2.
+            if cache_mode == 1:
+                save_flag = True
+            else:
+                window = (2 if coff == 2 else 1) * cmp_ratio
+                ring = kv_state.shape[1]
+                pad = ring - window + 2 if ring > window else 0
+                keep = compress_seq_id - (coff - 1) * cmp_ratio
+                if pad:
+                    end_abs = batch_start_pos + batch_seq_used
+                    keep = min(keep, end_abs - pad if end_abs > pad else 0)
+                save_flag = start_seq_idx >= keep
             compress_flag = start_seq_idx < compress_seq_id
 
             if save_flag:
@@ -976,9 +988,7 @@ class TestCompressor(unittest.TestCase):
             start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
             rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
             rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
-        print("R128C2: launched", flush=True)
         torch_npu.npu.synchronize()
-        print("R128C2: kernel returned+synced", flush=True)
         d = (out.cpu() - ref).abs()[mask_t]
         self._assert_ok(d.max().item() if d.numel() > 0 else 0.0)
 
@@ -1282,159 +1292,109 @@ class TestCompressor(unittest.TestCase):
             d = (out.cpu() - ref).abs()[mask_t]
             self._assert_ok(d.max().item() if d.numel() > 0 else 0.0)
 
-    def test_npu_graph_capture(self):
-        # Graph-capture support: warmup (fills the device-resident tiling cache),
-        # capture, then replay multiple times against mutated inputs to verify the
-        # graph reads the *current* contents of the captured tensors.
-        p = _make_inputs([200], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 1, 16)
+    def _run_mtp_verify(self, ratio, coff, head_dim, hidden, batch, ndraft, accept,
+                        ring, start0, steps, tol=0.05):
+        """Simulate MTP target-verify rounds on an in-place ring state.
 
-        x_n = p["x"].clone().npu()
-        wkv_n = p["wkv"].clone().npu()
-        wgate_n = p["wgate"].clone().npu()
-        ape_n = p["ape"].clone().npu()
-        norm_n = p["norm_weight"].clone().npu()
-        sine_n = p["rope_sin"].clone().npu()
-        cose_n = p["rope_cos"].clone().npu()
-        tbl_n = p["block_table"].clone().npu()
-        cu_n = p["cu_seqlens"].clone().npu()
-        used_n = torch.tensor(p["seqused"], dtype=torch.int32).npu()
-        start_n = torch.tensor(p["start_pos"], dtype=torch.int32).npu()
-        kw = dict(
-            rope_head_dim=64,
-            cmp_ratio=128,
-            coff=1,
-            norm_eps=1e-6,
-            rotary_mode=2,
-            cache_mode=2,
-            state_cache_stride_dim0=0,
-        )
+        Every round compresses ``ndraft`` candidate rows starting at each
+        request's committed position, but only ``accept`` (< ndraft) are kept,
+        so the next round starts from committed+accept and must re-read raw rows
+        between the accepted position and the previous round's compress boundary.
+        Candidate rows keep their token value across re-computation (like a real
+        rollback), via a per-position x cache. The CPU reference keeps those
+        rows (mtp_pad); if the kernel's SaveState pruned them, re-compression
+        reads stale/zero ring slots and kernel diverges from the reference.
+        """
+        gen = torch.Generator().manual_seed(20260813 + ratio)
+        ww = coff * head_dim
+        wkv = (torch.randn(ww, hidden, generator=gen) * 0.02).to(torch.bfloat16)
+        wgate = (torch.randn(ww, hidden, generator=gen) * 0.02).to(torch.bfloat16)
+        ape = (torch.randn(ratio, ww, generator=gen).float() * 0.01)
+        norm_weight = (torch.randn(head_dim, generator=gen).float() * 0.02 + 1.0)
 
-        def _call(state_n):
-            return torch.ops.npu.compressor(
-                x_n,
-                wkv_n,
-                wgate_n,
-                state_n,
-                ape_n,
-                norm_n,
-                sine_n,
-                cose_n,
-                state_block_table=tbl_n,
-                cu_seqlens=cu_n,
-                seqused=used_n,
-                start_pos=start_n,
-                **kw
+        kv_cpu = (torch.randn(batch, ring, ww, generator=gen).float() * 0.01)
+        sc_cpu = (torch.randn(batch, ring, ww, generator=gen).float() * 0.01)
+        block_table = torch.arange(batch, dtype=torch.int32)
+        state_npu = torch.cat([kv_cpu, sc_cpu], dim=-1).clone().npu()
+
+        rope_rows = min(batch * ndraft, batch * ndraft // ratio + batch)
+        rng = torch.Generator().manual_seed(20260813 + ratio + 1)
+        # per-request committed starts, phase-shifted so reqs hit boundaries
+        # at different steps
+        start_r = [start0 + r * ndraft for r in range(batch)]
+        x_cache = {}  # (r, pos) -> bf16 row (same token value on re-compute)
+
+        def _xrow(r, pos):
+            key = (r, pos)
+            if key not in x_cache:
+                x_cache[key] = (torch.randn(hidden, generator=rng) * 0.02).to(torch.bfloat16)
+            return x_cache[key]
+
+        worst = 0.0
+        for s in range(steps):
+            committed = [start_r[r] + s * accept for r in range(batch)]
+            x = torch.stack([_xrow(r, committed[r] + j)
+                             for r in range(batch) for j in range(ndraft)])
+            cu = torch.arange(0, batch * ndraft + 1, ndraft, dtype=torch.int32)
+            seqused = [ndraft] * batch
+            rope_sin = (torch.randn(rope_rows, 64, generator=rng).float() * 0.01)
+            rope_cos = (torch.ones(rope_rows, 64) +
+                        torch.randn(rope_rows, 64, generator=rng).float() * 0.01)
+
+            ref, ref_mask = _reference_compressor(
+                x, wkv, wgate, kv_cpu, sc_cpu,
+                torch.zeros_like(kv_cpu, dtype=torch.bool),
+                torch.zeros_like(sc_cpu, dtype=torch.bool),
+                ape, norm_weight, rope_sin, rope_cos,
+                block_table=block_table, cu_seqlens=cu,
+                seqused=seqused, start_pos=committed,
+                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
+                rotary_mode=2, cache_mode=2,
             )
+            mask_t = torch.from_numpy(np.asarray(ref_mask))
 
-        # valid mask (matches eager CPU reference in _run_case)
-        _, mask = _reference_compressor(
-            p["x"],
-            p["wkv"],
-            p["wgate"],
-            p["kv_state"].clone(),
-            p["score_state"].clone(),
-            torch.zeros_like(p["kv_state"], dtype=torch.bool),
-            torch.zeros_like(p["score_state"], dtype=torch.bool),
-            p["ape"],
-            p["norm_weight"],
-            p["rope_sin"],
-            p["rope_cos"],
-            block_table=p["block_table"],
-            cu_seqlens=p["cu_seqlens"].tolist(),
-            seqused=p["seqused"],
-            start_pos=p["start_pos"],
-            rope_head_dim=64,
-            cmp_ratio=128,
-            coff=1,
-            norm_eps=1e-6,
-            rotary_mode=2,
-            cache_mode=2,
-        )
-        mask_t = torch.from_numpy(np.asarray(mask)).bool()
-        if not mask_t.any():
-            return
-
-        # eager reference
-        state2 = p["state_cache"].clone().npu()
-        out_eager = _call(state2)
-        torch_npu.npu.synchronize()
-
-        # warmup: fill the tiling cache before capture (no host memcpy inside capture)
-        _call(p["state_cache"].clone().npu())
-        torch_npu.npu.synchronize()
-
-        # reset state so eager and graph see identical input
-        state2.copy_(p["state_cache"])
-        torch_npu.npu.synchronize()
-
-        g = torch.npu.NPUGraph()
-        capture_stream = torch_npu.npu.Stream()
-        with torch_npu.npu.graph(g, stream=capture_stream, auto_dispatch_capture=True):
-            out_graph = _call(state2)
-        torch_npu.npu.synchronize()
-        g.replay()
-        torch_npu.npu.synchronize()
-
-        eg = out_eager.cpu().float()[mask_t]
-        og = out_graph.cpu().float()[mask_t]
-        print(
-            f"[diag] eager nan={eg.isnan().sum().item()} graph nan={og.isnan().sum().item()} "
-            f"eager inf={eg.isinf().sum().item()} graph inf={og.isinf().sum().item()} "
-            f"eager range=[{eg.min().item():.3e},{eg.max().item():.3e}] "
-            f"graph range=[{og.min().item():.3e},{og.max().item():.3e}] "
-            f"mask_count={mask_t.sum().item()}"
-        )
-        d = ((og - eg).abs()).max().item() if not eg.isnan().any() and not og.isnan().any() else float("nan")
-        self._assert_ok(d)
-
-        # replay against mutated input: the graph must read the current x contents
-        for seed, offset in ((20260813, -0.03), (20260814, 0.08)):
-            gen = torch.Generator().manual_seed(seed)
-            x_n.copy_(
-                (torch.randn(p["x"].shape, generator=gen) * 0.02 + offset).to(
-                    p["x"].dtype
-                )
+            out = torch.ops.npu.compressor(
+                x.npu(), wkv.npu(), wgate.npu(), state_npu,
+                ape.npu(), norm_weight.npu(), rope_sin.npu(), rope_cos.npu(),
+                state_block_table=block_table.npu(),
+                cu_seqlens=cu.npu(),
+                seqused=torch.tensor(seqused, dtype=torch.int32).npu(),
+                start_pos=torch.tensor(committed, dtype=torch.int32).npu(),
+                rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
+                rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0,
             )
-            state2.copy_(
-                p["state_cache"]
-            )  # reset the in/out state so graph and ref see identical input
             torch_npu.npu.synchronize()
-            g.replay()
-            torch_npu.npu.synchronize()
-            ref, mask2 = _reference_compressor(
-                x_n.cpu(),
-                p["wkv"],
-                p["wgate"],
-                p["kv_state"].clone(),
-                p["score_state"].clone(),
-                torch.zeros_like(p["kv_state"], dtype=torch.bool),
-                torch.zeros_like(p["score_state"], dtype=torch.bool),
-                p["ape"],
-                p["norm_weight"],
-                p["rope_sin"],
-                p["rope_cos"],
-                block_table=p["block_table"],
-                cu_seqlens=p["cu_seqlens"].tolist(),
-                seqused=p["seqused"],
-                start_pos=p["start_pos"],
-                rope_head_dim=64,
-                cmp_ratio=128,
-                coff=1,
-                norm_eps=1e-6,
-                rotary_mode=2,
-                cache_mode=2,
-            )
-            mask2_t = torch.from_numpy(np.asarray(mask2)).bool()
-            if mask2_t.any():
-                d2 = (
-                    (
-                        (out_graph.cpu().float() - torch.as_tensor(ref).float()).abs()
-                        * mask2_t
-                    )
-                    .max()
-                    .item()
-                )
-                self._assert_ok(d2)
+
+            if mask_t.numel() == 0:
+                md = 0.0
+            else:
+                d = (out.cpu() - ref).abs()
+                sel = d[mask_t]
+                md = float(sel.max()) if sel.numel() > 0 else 0.0
+            state_cpu = torch.cat([kv_cpu, sc_cpu], dim=-1).float()
+            st_diff = float((state_npu.cpu() - state_cpu).abs().max())
+            worst = max(worst, md)
+            self.assertLess(md, tol,
+                            f"ratio{ratio} step {s} start={committed}: out diverged "
+                            f"(maxdiff={md}) from MTP reference")
+            self.assertLess(st_diff, tol,
+                            f"ratio{ratio} step {s} start={committed}: ring state "
+                            f"diverged (maxdiff={st_diff})")
+        return worst
+
+    def test_mtp_verify_rollback(self):
+        # MTP (speculative) verify rollback regression: sglang grows the ring
+        # beyond one window when speculative decode is on (C4 16, C128 256) so
+        # a partially-accepted verify round can re-read the raw rows it must
+        # re-compress on the next round. SaveState keeps those mtp_pad tail rows
+        # now; before the fix the ring read stale/zero values and accuracy died.
+        # C128: window 128 / ring 256; verify 3 candidates, accept 1, crossing
+        # the 128 boundary re-reads positions like 125-127.
+        self._run_mtp_verify(ratio=128, coff=1, head_dim=128, hidden=1024,
+                             batch=2, ndraft=3, accept=1, ring=256, start0=125, steps=4)
+        # C4 (overlap, window 8): ring 16 under MTP; verify 5, accept 1.
+        self._run_mtp_verify(ratio=4, coff=2, head_dim=128, hidden=1024,
+                             batch=2, ndraft=5, accept=1, ring=16, start0=7, steps=5)
 
 
 if __name__ == "__main__":

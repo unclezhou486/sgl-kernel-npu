@@ -47,6 +47,7 @@
 
 #include "compressor_template_tiling_key.h"
 #include "compressor_tiling_data.h"
+#include "kernel_operator_sys_var_intf.h"
 #include "compressor_kernel.h"
 
 #if __has_include("compressor_kernel_perf.h")
@@ -110,10 +111,10 @@ extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR
         LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 2)  // TH bf16 coff2 rot2 cache2
         LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 2)  // TH fp16 coff1 rot2 cache2
         LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 2)  // TH fp16 coff2 rot2 cache2
-        LAUNCH_COMPRESSOR_KEY(1, 0, 1, 2, 1)  // TH bf16 coff1 rot2 cache1
-        LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 1)  // TH bf16 coff2 rot2 cache1
-        LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 1)  // TH fp16 coff1 rot2 cache1
-        LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 1)  // TH fp16 coff2 rot2 cache1
+        // LAUNCH_COMPRESSOR_KEY(1, 0, 1, 2, 1)  // TH bf16 coff1 rot2 cache1
+        // LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 1)  // TH bf16 coff2 rot2 cache1
+        // LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 1)  // TH fp16 coff1 rot2 cache1
+        // LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 1)  // TH fp16 coff2 rot2 cache1
         // BSH layout (layout bit = 0)
         // LAUNCH_COMPRESSOR_KEY(0, 0, 1, 2, 2)  // BSH bf16 coff1 rot2 cache2
         // LAUNCH_COMPRESSOR_KEY(0, 0, 2, 2, 2)  // BSH bf16 coff2 rot2 cache2
@@ -124,7 +125,9 @@ extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR
         // LAUNCH_COMPRESSOR_KEY(0, 1, 1, 2, 1)  // BSH fp16 coff1 rot2 cache1
         // LAUNCH_COMPRESSOR_KEY(0, 1, 2, 2, 1)  // BSH fp16 coff2 rot2 cache1
         default:
-            break;
+            // Host GenTilingKey restricts to compiled keys (TH + rotary_mode=2 +
+            // cache1/2); reaching here means host/kernel key sets drifted.
+            AscendC::Trap();
     }
 }
 

@@ -416,6 +416,13 @@ ge::graphStatus CompressorTiling::GenTilingKey() const
         layout = 1;
     }
 
+    if (templateId != static_cast<uint8_t>(TemplateId::EMPTY_X) && (layout != 1 || rotaryMode != 2)) {
+        OP_LOGE(context_->opName,
+                "compressor kernel is compiled only for TH layout and rotary_mode=2 (got layout=%u rotary_mode=%u); "
+                "BSH / rotary_mode=1 are not compiled and would silently return empty output",
+                layout, rotaryMode);
+        return ge::GRAPH_FAILED;
+    }
     context_->tilingKey = GET_TPL_TILING_KEY(layout, dtype, coff, rotaryMode, cacheMode, templateId);
     OP_LOGI(context_->opName,
             "Compressor dtype:%hhu layout:%hhu  coff:%hhu rotary_mode:%hhu, cacheMode: %u, template_id:%hhu", dtype,
@@ -858,9 +865,16 @@ ge::graphStatus CompressorTiling::CheckFeature() const
                     OP_LOGE(context_->opName, "when cacheMode is %u, blockNum should not be less than batchSize(%u), "
                                               "but got %u",
                             static_cast<uint8_t>(CACHE_MODE::CYCLE), baseParams_->batchSize,
-                            pageAttentionParams_->blockSize),
+                            pageAttentionParams_->blockNum),
                     return ge::GRAPH_FAILED);
     }
+    uint64_t cacheStride =
+        context_->stateCache.shape->GetShape().GetDim(1) * context_->stateCache.shape->GetShape().GetDim(2);
+    OP_CHECK_IF(
+        cacheStride != baseParams_->stateCacheStrideDim0,
+        OP_LOGE(context_->opName, "state_cache must be contiguous, first axes stride should be equal to %u, but got %u",
+                cacheStride, baseParams_->stateCacheStrideDim0),
+        return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
 }
 
