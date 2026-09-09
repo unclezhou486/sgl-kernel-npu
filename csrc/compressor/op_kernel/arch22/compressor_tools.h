@@ -696,9 +696,9 @@ __aicore__ inline void CompressorVec1SliceIterator<COMP>::IteratorSlice()
             }
             sliceInfo_.sIdx = 0;
             sliceInfo_.bSeqUsed = tools_.GetSeqUsed(sliceInfo_.bIdx);
+            sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
+            sliceInfo_.bSeqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
         } while (sliceInfo_.bSeqUsed == 0);
-        sliceInfo_.bSeqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
-        sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
     }
     if (isFirst_) {
         isFirst_ = false;

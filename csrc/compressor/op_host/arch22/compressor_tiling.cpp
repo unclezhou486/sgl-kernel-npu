@@ -382,6 +382,13 @@ ge::graphStatus CompressorTiling::GenTilingKey() const
         layout = 1;
     }
 
+    if (templateId != static_cast<uint8_t>(TemplateId::EMPTY_X) && (layout != 1 || rotaryMode != 2)) {
+        OP_LOGE(context_->opName,
+                "compressor kernel is compiled only for TH layout and rotary_mode=2 (got layout=%u rotary_mode=%u); "
+                "BSH / rotary_mode=1 are not compiled and would silently return empty output",
+                layout, rotaryMode);
+        return ge::GRAPH_FAILED;
+    }
     context_->tilingKey = GET_TPL_TILING_KEY(layout, dtype, coff, rotaryMode, cacheMode, templateId);
     OP_LOGI(context_->opName,
             "Compressor dtype:%hhu layout:%hhu  coff:%hhu rotary_mode:%hhu, cacheMode: %u, template_id:%hhu", dtype,

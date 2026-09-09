@@ -926,9 +926,23 @@ __aicore__ inline void CompressorBlockVectorPerf<COMP>::SaveState(const LocalTen
     uint64_t srcBaseOffset = sliceInfo.dealedSeqCnt * coff_ * dDealSize;
 
     if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
-        uint32_t compressSeqIdx = Trunc(sliceInfo.bStartPos + sliceInfo.bSeqUsed, constInfo_.cmpRatio);
+        // Rows strictly before the compress boundary become c-state and do not
+        // need to stay in the raw state -- EXCEPT during MTP verify, where a
+        // partially-accepted round must be able to re-compress from the
+        // actually-accepted offset and re-reads raw rows that sat between the
+        // accepted position and this round's compress boundary. Keep those tail
+        // rows the ring can hold beyond one window (mirrors sglang's
+        // get_compress_state_write_pad / c_plan `mtp_pad`):
+        //     pad = ring - window + 2   (0 when ring <= window)
+        const uint32_t window = (coff_ == 2U ? 2U : 1U) * constInfo_.cmpRatio;
+        const uint32_t pad = constInfo_.blockSize > window ? constInfo_.blockSize - window + 2U : 0U;
+        const uint32_t batchEnd = sliceInfo.bStartPos + sliceInfo.bSeqUsed;
+        const uint32_t compressSeqIdx = Trunc(batchEnd, constInfo_.cmpRatio);
         uint32_t writeSeqStartIdx =
-            compressSeqIdx > (coff_ - 1) * constInfo_.cmpRatio ? compressSeqIdx - (coff_ - 1) * constInfo_.cmpRatio : 0;
+            compressSeqIdx > (coff_ - 1U) * constInfo_.cmpRatio ? compressSeqIdx - (coff_ - 1U) * constInfo_.cmpRatio : 0U;
+        if (pad != 0U) {
+            writeSeqStartIdx = batchEnd > pad ? min(writeSeqStartIdx, batchEnd - pad) : 0U;
+        }
         if (endSeqIdx <= writeSeqStartIdx) {
             return;
         }
