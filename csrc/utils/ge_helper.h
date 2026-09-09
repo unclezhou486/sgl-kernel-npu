@@ -2,6 +2,7 @@
 #define SGLANG_KERNEL_GE_HELPER_H
 #include <cstring>
 #include <cstdint>
+#include <functional>
 #include <any>
 #include <map>
 #include <mutex>
@@ -156,7 +157,7 @@ public:
         }
         if (cache.slabs.empty() || (cache.nextSlot % MAX_TILING_CACHE_ENTRIES) == 0) {
             cache.slabs.emplace_back(
-                at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, at::TensorOptions().device(device).dtype(at::kByte)));
+                MakeSlab_(device, tilingSize * MAX_TILING_CACHE_ENTRIES));
         }
         const int64_t slot = cache.nextSlot++;
         auto cachedTiling = SlabTensor(cache, static_cast<uint64_t>(slot), tilingSize);
@@ -173,6 +174,30 @@ private:
         const size_t slabIdx = static_cast<size_t>(slot / MAX_TILING_CACHE_ENTRIES);
         const size_t within = static_cast<size_t>(slot % MAX_TILING_CACHE_ENTRIES);
         return cache.slabs[slabIdx].narrow(0, static_cast<int64_t>(within) * tilingSize, tilingSize);
+    }
+
+    // Allocate each tiling slab OUTSIDE the torch NPU caching allocator
+    // (aclrtMalloc + non-owning from_blob view). Tiling addresses are consumed
+    // by kernels captured into an NPU graph; torch-allocator-owned memory has
+    // been observed to get re-mapped/re-written by graph capture, corrupting the
+    // tiling data between host write and device read. Dedicated GM is never
+    // touched by the allocator, so the captured address keeps its content.
+    static at::Tensor MakeSlab_(const c10::Device &device, int64_t bytes)
+    {
+        void *ptr = nullptr;
+        aclError st = aclrtMalloc(&ptr, static_cast<size_t>(bytes), ACL_MEM_MALLOC_HUGE_FIRST);
+        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr,
+                    "ge_helper: aclrtMalloc tiling slab failed, acl error ", static_cast<int>(st));
+        auto del = [](void *p) {
+            if (p != nullptr) {
+                aclrtFree(p);
+            }
+        };
+        int64_t nbytes[] = {bytes};
+        int64_t bstrides[] = {1};
+        std::function<void(void *)> deleter = del;
+        return at::from_blob(ptr, at::IntArrayRef(nbytes, 1), at::IntArrayRef(bstrides, 1), deleter,
+                             at::TensorOptions().device(device).dtype(at::kByte));
     }
 
     static void CopyTo_(const at::Tensor &destination, const T &tilingData, const std::string &opName)
