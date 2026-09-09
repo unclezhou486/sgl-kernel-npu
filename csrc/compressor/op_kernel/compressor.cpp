@@ -76,16 +76,16 @@ using namespace Compressor;
                                           static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL)); \
         break;
 #else
-#define LAUNCH_COMPRESSOR_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL)                                  \
-    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 0):                               \
-        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernel, static_cast<X_LAYOUT>(LAYOUT_BIT),                     \
-                                          static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),            \
-                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL));  \
-        break;                                                                                                     \
-    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                               \
+#define LAUNCH_COMPRESSOR_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL)                                \
+    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 0):                              \
+        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernel, static_cast<X_LAYOUT>(LAYOUT_BIT),                    \
+                                          static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),           \
+                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL)); \
+        break;                                                                                                    \
+    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                              \
         INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelFullLoad, static_cast<X_LAYOUT>(LAYOUT_BIT),            \
                                           static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),           \
-                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL));  \
+                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL)); \
         break;
 #endif
 

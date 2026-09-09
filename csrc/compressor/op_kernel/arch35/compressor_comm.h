@@ -49,8 +49,7 @@ __aicore__ inline T Trunc(T num, T rnd)
 template <typename T>
 __aicore__ inline T FloorPow2(T num)
 {
-    if (num == 0)
-        return 1;
+    if (num == 0) return 1;
     for (uint32_t i = 1; i < sizeof(T) * 8; i <<= 1) {
         num |= (num >> i);
     }
@@ -60,8 +59,7 @@ __aicore__ inline T FloorPow2(T num)
 template <typename T>
 __aicore__ inline T CeilPow2(T num)
 {
-    if (num <= 1)
-        return 1;
+    if (num <= 1) return 1;
     num--;
     for (uint32_t i = 1; i < sizeof(T) * 8; i <<= 1) {
         num |= (num >> i);
@@ -70,20 +68,11 @@ __aicore__ inline T CeilPow2(T num)
     return num;
 }
 
-enum class X_LAYOUT : std::uint8_t {
-    BSH = static_cast<std::uint8_t>(0),
-    TH = static_cast<std::uint8_t>(1)
-};
+enum class X_LAYOUT : std::uint8_t { BSH = static_cast<std::uint8_t>(0), TH = static_cast<std::uint8_t>(1) };
 
-enum class X_DTYPE : std::uint8_t {
-    BF16 = static_cast<std::uint8_t>(0),
-    FP16 = static_cast<std::uint8_t>(1)
-};
+enum class X_DTYPE : std::uint8_t { BF16 = static_cast<std::uint8_t>(0), FP16 = static_cast<std::uint8_t>(1) };
 
-enum class COFF : std::uint8_t {
-    DISABLE = static_cast<std::uint8_t>(1),
-    OVERLAP = static_cast<std::uint8_t>(2)
-};
+enum class COFF : std::uint8_t { DISABLE = static_cast<std::uint8_t>(1), OVERLAP = static_cast<std::uint8_t>(2) };
 
 enum class ROTARY_MODE : std::uint8_t {
     HALF = static_cast<std::uint8_t>(1),
@@ -95,11 +84,7 @@ enum class CACHE_MODE : std::uint8_t {
     CYCLE = static_cast<std::uint8_t>(2)
 };
 
-enum class TEMPLATE_ID : uint8_t {
-    NORMAL = 0,
-    EMPTY_X = 1,
-    FULL_LOAD = 2
-};
+enum class TEMPLATE_ID : uint8_t { NORMAL = 0, EMPTY_X = 1, FULL_LOAD = 2 };
 
 template <X_LAYOUT X_L, X_DTYPE X_T, COFF C, ROTARY_MODE Rotary_Mode, CACHE_MODE Cache_Mode, typename... Args>
 struct COMPType {
@@ -208,7 +193,7 @@ struct ConstInfo {
     uint32_t mm1ScoreResSize = 0;
     uint32_t vec1TailCacheSize = 0;
     uint32_t vec1ResSize = 0;
-    uint32_t mm1ResSize = 0; // 所有cube输出kv/score结果的总大小
+    uint32_t mm1ResSize = 0;  // 所有cube输出kv/score结果的总大小
 
     uint32_t aiCoreIdx = 0;
     uint32_t nSize = 0;
@@ -218,7 +203,7 @@ struct ConstInfo {
 
 struct RunInfo {
     bool isValid = false;
-    uint32_t cubeDbIdx = 0; // kernel主循环索引
+    uint32_t cubeDbIdx = 0;  // kernel主循环索引
 
     // 增加字段
     uint32_t dealTcNum = 0;
@@ -229,8 +214,8 @@ struct RunInfo {
     // 左边相关信息
     uint32_t preBStart = 0;
     uint32_t preSStart = 0;
-    uint32_t preDealSeqCnt = 0;  // 左边需要处理的s大小
-    uint32_t preFirstSeqCnt = 0; // 左边首块大小
+    uint32_t preDealSeqCnt = 0;   // 左边需要处理的s大小
+    uint32_t preFirstSeqCnt = 0;  // 左边首块大小
 
     uint32_t kStartIdx = 0;
     uint32_t dealKSize = 0;
@@ -252,9 +237,9 @@ struct RunInfo {
 
 struct Vec1RunInfo {
     // vec相关信息，一次syncAll需处理数据的起始索引
-    bool resetResFlag = false; // v1积攒N轮 是否是N轮的起始轮
-    uint32_t c1v1DbIdx = 0;    // vec1 doubleBuffer索引
-    uint32_t v1v2DbIdx = 0;    // v1v2 doubleBuffer索引
+    bool resetResFlag = false;  // v1积攒N轮 是否是N轮的起始轮
+    uint32_t c1v1DbIdx = 0;     // vec1 doubleBuffer索引
+    uint32_t v1v2DbIdx = 0;     // v1v2 doubleBuffer索引
     uint32_t bStart = 0;
     uint32_t sStart = 0;
     uint32_t dealTcNum = 0;
@@ -263,7 +248,7 @@ struct Vec1RunInfo {
 
 struct Vec2RunInfo {
     // uint32_t bStart = 0;
-    uint32_t v2DbIdx = 0; // v2 doubleBuffer索引
+    uint32_t v2DbIdx = 0;  // v2 doubleBuffer索引
     uint32_t sStart = 0;
     uint32_t bEnd = 0;
     uint32_t sEnd = 0;
@@ -377,10 +362,10 @@ __aicore__ inline constexpr T RepeatElementNum()
     return REPEAT_BLOCK_BYTE / sizeof(T);
 }
 // BLOCK和REPEAT的FP32元素数
-inline constexpr uint32_t FP32_BLOCK_ELEMENT_NUM = BYTE_BLOCK / sizeof(float); // 8
-inline constexpr uint32_t FP16_BLOCK_ELEMENT_NUM = BYTE_BLOCK / sizeof(bfloat16_t);    // 16
-inline constexpr uint32_t FP32_REPEAT_ELEMENT_NUM = REPEAT_BLOCK_BYTE / sizeof(float); // 64
-inline constexpr uint32_t REPEAT_STRIDE_NUM = REPEAT_BLOCK_BYTE / BYTE_BLOCK; // 8
+inline constexpr uint32_t FP32_BLOCK_ELEMENT_NUM = BYTE_BLOCK / sizeof(float);          // 8
+inline constexpr uint32_t FP16_BLOCK_ELEMENT_NUM = BYTE_BLOCK / sizeof(bfloat16_t);     // 16
+inline constexpr uint32_t FP32_REPEAT_ELEMENT_NUM = REPEAT_BLOCK_BYTE / sizeof(float);  // 64
+inline constexpr uint32_t REPEAT_STRIDE_NUM = REPEAT_BLOCK_BYTE / BYTE_BLOCK;           // 8
 inline constexpr uint32_t REPEAT_MAX_NUM = 255;
 inline constexpr uint32_t BRCB_NUM = 8;
 inline constexpr uint32_t MAX_R = 256;
@@ -391,14 +376,14 @@ __aicore__ inline void CopySingleMatrixNDToNZ(LocalTensor<T> l1Tensor, const Glo
 {
     Nd2NzParams nd2nzPara;
     nd2nzPara.ndNum = 1;
-    nd2nzPara.nValue = nValue; // nd矩阵的行数
+    nd2nzPara.nValue = nValue;  // nd矩阵的行数
     if constexpr (IsSameType<T, int4b_t>::value) {
         constexpr uint32_t HALF_SIZE_DIVISOR = 2;
         nd2nzPara.dValue = dValue / HALF_SIZE_DIVISOR;
         nd2nzPara.srcDValue = srcDValue / HALF_SIZE_DIVISOR;
     } else {
-        nd2nzPara.dValue = dValue;       // nd矩阵的列数
-        nd2nzPara.srcDValue = srcDValue; // 同一nd矩阵相邻行起始地址间的偏移
+        nd2nzPara.dValue = dValue;        // nd矩阵的列数
+        nd2nzPara.srcDValue = srcDValue;  // 同一nd矩阵相邻行起始地址间的偏移
     }
     nd2nzPara.dstNzC0Stride = dstNzC0Stride;
     nd2nzPara.dstNzNStride = 1;
@@ -442,5 +427,5 @@ __aicore__ inline void DumpTensorForDim2(GlobalTensor<T> tensor, uint32_t desc, 
     // AscendC::DumpTensor(tensor, desc, dumpSize, shapeInfo);
 }
 
-} // namespace Compressor
+}  // namespace Compressor
 #endif

@@ -29,7 +29,6 @@ constexpr uint32_t baseD128 = 128;
 constexpr uint32_t baseD256 = 256;
 constexpr uint32_t baseD512 = 512;
 
-
 template <typename T>
 __simd_callee__ inline T SimdCeilDivT(T num1, T num2)
 {
@@ -40,16 +39,16 @@ __simd_callee__ inline T SimdCeilDivT(T num1, T num2)
 }
 
 template <typename T>
-struct ReduceMulRegList {  
+struct ReduceMulRegList {
     MicroAPI::RegTensor<T> vreg0;
     MicroAPI::RegTensor<T> vreg1;
     MicroAPI::RegTensor<T> vregMul;
     MicroAPI::RegTensor<T> vregSum;
 };
 
-
 template <typename T>
-__simd_callee__ void LoadMulAddVFImpl(__ubuf__ T *kvAddr, __ubuf__ T *scoreAddr, ReduceMulRegList<T> &regList, uint64_t offset, uint32_t maskValue)
+__simd_callee__ void LoadMulAddVFImpl(__ubuf__ T *kvAddr, __ubuf__ T *scoreAddr, ReduceMulRegList<T> &regList,
+                                      uint64_t offset, uint32_t maskValue)
 {
     MicroAPI::MaskReg mask = MicroAPI::UpdateMask<T>(maskValue);
     MicroAPI::LoadAlign(regList.vreg0, kvAddr + offset);
@@ -57,8 +56,6 @@ __simd_callee__ void LoadMulAddVFImpl(__ubuf__ T *kvAddr, __ubuf__ T *scoreAddr,
     MicroAPI::Mul(regList.vregMul, regList.vreg0, regList.vreg1, mask);
     MicroAPI::Add(regList.vregSum, regList.vregSum, regList.vregMul, mask);
 }
-
-
 
 template <typename T>
 __simd_vf__ void MulReduceSumbase8VFImpl(__ubuf__ T *kvAddr, __ubuf__ T *scoreAddr, __ubuf__ T *outputAddr,
@@ -94,7 +91,7 @@ __simd_vf__ void MulReduceSumbase8VFImpl(__ubuf__ T *kvAddr, __ubuf__ T *scoreAd
         // 32 -> 16
         MicroAPI::Squeeze<T, AscendC::MicroAPI::GatherMaskMode::NO_STORE_REG>(vregSum0, regList.vregSum, maskH48);
         MicroAPI::Add(regList.vregSum, regList.vregSum, vregSum0, maskL16);
-        
+
         // 16 -> 8
         MicroAPI::Squeeze<T, AscendC::MicroAPI::GatherMaskMode::NO_STORE_REG>(vregSum0, regList.vregSum, maskH56);
         MicroAPI::Add(regList.vregSum, regList.vregSum, vregSum0, maskL8);
@@ -130,7 +127,7 @@ __simd_vf__ void MulReduceSumbase16VFImpl(__ubuf__ T *kvAddr, __ubuf__ T *scoreA
         // 64 -> 32
         MicroAPI::Squeeze<T, AscendC::MicroAPI::GatherMaskMode::NO_STORE_REG>(vregSum0, regList.vregSum, maskH32);
         MicroAPI::Add(regList.vregSum, regList.vregSum, vregSum0, maskL32);
-    
+
         // 32 -> 16
         MicroAPI::Squeeze<T, AscendC::MicroAPI::GatherMaskMode::NO_STORE_REG>(vregSum0, regList.vregSum, maskH48);
         MicroAPI::Add(regList.vregSum, regList.vregSum, vregSum0, maskL16);
@@ -281,7 +278,7 @@ __simd_vf__ void MulReduceSumbase512VFImpl(__ubuf__ T *kvAddr, __ubuf__ T *score
 /**
  * @brief MulReduceSumbaseVF 包含mul和reducesum
  * @param outputLocal 输出tensor []
- * @param coff 
+ * @param coff
  * @param cmpRatio 压缩块大小
  * @param baseD  核内d轴切分大小
  * @param scLoopCnt  sc数,
@@ -290,10 +287,9 @@ __simd_vf__ void MulReduceSumbase512VFImpl(__ubuf__ T *kvAddr, __ubuf__ T *score
 // 当前仅支持coff * cmpRatio为2的幂的情况
 template <typename T>
 __aicore__ inline void MulReduceSumbaseVF(const LocalTensor<T> &kvLocal, const LocalTensor<T> &scoreLocal,
-                                          const LocalTensor<T> &outputLocal, const uint32_t coff, const uint32_t cmpRatio,
-                                          const uint32_t baseD, const uint32_t scLoopCnt)
+                                          const LocalTensor<T> &outputLocal, const uint32_t coff,
+                                          const uint32_t cmpRatio, const uint32_t baseD, const uint32_t scLoopCnt)
 {
-
     __ubuf__ T *kvAddr = (__ubuf__ T *)kvLocal.GetPhyAddr();
     __ubuf__ T *scoreAddr = (__ubuf__ T *)scoreLocal.GetPhyAddr();
     __ubuf__ T *outputAddr = (__ubuf__ T *)outputLocal.GetPhyAddr();
@@ -313,6 +309,5 @@ __aicore__ inline void MulReduceSumbaseVF(const LocalTensor<T> &kvLocal, const L
         MulReduceSumbase512VFImpl(kvAddr, scoreAddr, outputAddr, coff, cmpRatio, scLoopCnt, baseD);
     }
 }
-
 
 #endif

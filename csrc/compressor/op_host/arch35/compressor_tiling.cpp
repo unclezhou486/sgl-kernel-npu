@@ -241,7 +241,7 @@ ge::graphStatus CompressorTiling::SetTemplateId()
 ge::graphStatus CompressorTiling::SetInnerSplitInfo()
 {
     if (context_->templateId == TemplateId::FULL_LOAD) {
-        innerSplitParams_->mBaseSize = 256;              // 256:核间切分，M轴基本块大小
+        innerSplitParams_->mBaseSize = 256;               // 256:核间切分，M轴基本块大小
         innerSplitParams_->dBaseSize = 256 / (coff * 2);  // nBase = dBase * coff * 2
         uint32_t dBaseNum = baseParams_->headDim / innerSplitParams_->dBaseSize;
         uint32_t mBaseNum = (baseParams_->tokenSize + innerSplitParams_->mBaseSize - 1) / innerSplitParams_->mBaseSize;
@@ -279,13 +279,12 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
                 baseParams_->splitCoreParam[i].mStart =
                     mStart < baseParams_->tokenSize ? mStart : baseParams_->tokenSize;
                 uint32_t mEnd = baseParams_->splitCoreParam[i].mStart + innerSplitParams_->mBaseSize;
-                baseParams_->splitCoreParam[i].mEnd =
-                    mEnd < baseParams_->tokenSize ? mEnd : baseParams_->tokenSize;
+                baseParams_->splitCoreParam[i].mEnd = mEnd < baseParams_->tokenSize ? mEnd : baseParams_->tokenSize;
                 baseParams_->mLoopNum = mBaseNum / baseParams_->coreGroupNum;
             }
         }
     } else {
-        innerSplitParams_->mBaseSize = 256;        // 256:核间切分，M轴基本块大小
+        innerSplitParams_->mBaseSize = 256;         // 256:核间切分，M轴基本块大小
         innerSplitParams_->dBaseSize = 128 / coff;  // 128：核间切分，D轴基本块大小
     }
     return ge::GRAPH_SUCCESS;
@@ -311,8 +310,8 @@ ge::graphStatus CompressorTiling::CalcWorkSpace()
         context_->workSpaces[0] = workspaceSize_;
     }
 
-    OP_LOGI(context_->opName, "Tiling info: workspaceSize_ = %zu aicNum_=%u aivNum_=%u",
-            workspaceSize_, aicNum_, aivNum_);
+    OP_LOGI(context_->opName, "Tiling info: workspaceSize_ = %zu aicNum_=%u aivNum_=%u", workspaceSize_, aicNum_,
+            aivNum_);
     return ge::GRAPH_SUCCESS;
 }
 
@@ -861,12 +860,13 @@ ge::graphStatus CompressorTiling::CheckFeature() const
         OP_LOGE(context_->opName, "blockSize should not be less than 1, but got %u", pageAttentionParams_->blockSize),
         return ge::GRAPH_FAILED);
     if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CYCLE)) {
-        OP_CHECK_IF(pageAttentionParams_->blockNum < baseParams_->batchSize,
-                    OP_LOGE(context_->opName, "when cacheMode is %u, blockNum should not be less than batchSize(%u), "
-                                              "but got %u",
-                            static_cast<uint8_t>(CACHE_MODE::CYCLE), baseParams_->batchSize,
-                            pageAttentionParams_->blockNum),
-                    return ge::GRAPH_FAILED);
+        OP_CHECK_IF(
+            pageAttentionParams_->blockNum < baseParams_->batchSize,
+            OP_LOGE(context_->opName,
+                    "when cacheMode is %u, blockNum should not be less than batchSize(%u), "
+                    "but got %u",
+                    static_cast<uint8_t>(CACHE_MODE::CYCLE), baseParams_->batchSize, pageAttentionParams_->blockNum),
+            return ge::GRAPH_FAILED);
     }
     uint64_t cacheStride =
         context_->stateCache.shape->GetShape().GetDim(1) * context_->stateCache.shape->GetShape().GetDim(2);

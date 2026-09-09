@@ -35,7 +35,6 @@ constexpr MicroAPI::CastTrait castTraitB322B16 = {
     RoundMode::CAST_RINT,
 };
 
-
 template <typename T, typename ROPET>
 __simd_vf__ void HalfModeRopeVF(__ubuf__ T *sinUb, __ubuf__ T *cosUb, __ubuf__ T *inUb, __ubuf__ ROPET *outUb,
                                 uint32_t row, uint32_t col, uint32_t actualCol, uint64_t baseAddr)
@@ -56,7 +55,6 @@ __simd_vf__ void HalfModeRopeVF(__ubuf__ T *sinUb, __ubuf__ T *cosUb, __ubuf__ T
     uint32_t maskValue = col / 2;
     MicroAPI::MaskReg mask = MicroAPI::UpdateMask<T>(maskValue);
     uint32_t halfCol = col / 2;
-
 
     for (uint32_t rIdx = 0; rIdx < row; rIdx++) {
         __ubuf__ T *curSinUb = sinUb + rIdx * col;
@@ -92,7 +90,6 @@ __simd_vf__ void HalfModeRopeVF(__ubuf__ T *sinUb, __ubuf__ T *cosUb, __ubuf__ T
     }
 }
 
-
 template <typename T, typename ROPET>
 __simd_vf__ void InterleaveModeRopeVF(__ubuf__ T *sinUb, __ubuf__ T *cosUb, __ubuf__ T *inUb, __ubuf__ ROPET *outUb,
                                       uint32_t row, uint32_t col, uint32_t actualCol, uint64_t baseAddr)
@@ -109,7 +106,6 @@ __simd_vf__ void InterleaveModeRopeVF(__ubuf__ T *sinUb, __ubuf__ T *cosUb, __ub
     MicroAPI::RegTensor<ROPET> vregCastOut;
     uint32_t maskValue = col;
     MicroAPI::MaskReg mask = MicroAPI::UpdateMask<T>(maskValue);
-
 
     for (uint32_t rIdx = 0; rIdx < row; rIdx++) {
         __ubuf__ T *curSinUb = sinUb + rIdx * col;
@@ -137,7 +133,6 @@ __simd_vf__ void InterleaveModeRopeVF(__ubuf__ T *sinUb, __ubuf__ T *cosUb, __ub
         }
     }
 }
-
 
 template <Compressor::ROTARY_MODE MODE, typename T, typename ROPET>
 __aicore__ inline void RopeVF(const LocalTensor<T> &sinTensor, const LocalTensor<T> &cosTensor,

@@ -176,8 +176,8 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     // prefix at the very end, so readGen starts at
     // workspaceSize - libapiSize - gmSize (== the kernel data tail), NOT at
     // workspaceSize - libapiSize - genFlagsSize.
-    int64_t genFlagsSize = (int64_t)(tilingData.workspaceParams.aivNum *
-                                     tilingData.workspaceParams.dbWorkspaceRatio * sizeof(uint32_t));
+    int64_t genFlagsSize =
+        (int64_t)(tilingData.workspaceParams.aivNum * tilingData.workspaceParams.dbWorkspaceRatio * sizeof(uint32_t));
     auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
     int64_t libapiSize = static_cast<int64_t>(ascendcPlatform.GetLibApiWorkSpaceSize());
     int64_t gmSize = (int64_t)(tilingData.baseParams.usedCoreNum + 1 + tilingData.workspaceParams.aivNum) *

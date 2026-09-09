@@ -156,8 +156,7 @@ public:
                         "warmup with the same tensor shapes, dtypes, optional inputs, and attributes");
         }
         if (cache.slabs.empty() || (cache.nextSlot % MAX_TILING_CACHE_ENTRIES) == 0) {
-            cache.slabs.emplace_back(
-                MakeSlab_(device, tilingSize * MAX_TILING_CACHE_ENTRIES));
+            cache.slabs.emplace_back(MakeSlab_(device, tilingSize * MAX_TILING_CACHE_ENTRIES));
         }
         const int64_t slot = cache.nextSlot++;
         auto cachedTiling = SlabTensor(cache, static_cast<uint64_t>(slot), tilingSize);
@@ -186,8 +185,8 @@ private:
     {
         void *ptr = nullptr;
         aclError st = aclrtMalloc(&ptr, static_cast<size_t>(bytes), ACL_MEM_MALLOC_HUGE_FIRST);
-        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr,
-                    "ge_helper: aclrtMalloc tiling slab failed, acl error ", static_cast<int>(st));
+        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr, "ge_helper: aclrtMalloc tiling slab failed, acl error ",
+                    static_cast<int>(st));
         auto del = [](void *p) {
             if (p != nullptr) {
                 aclrtFree(p);
