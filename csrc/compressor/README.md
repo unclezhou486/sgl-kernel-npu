@@ -230,13 +230,16 @@ code:
   `RegisterTensor`, sets scalar attrs with `SetAttrAny`, runs the tiling, and
   launches the kernel directly. Tiling data is cached per distinct configuration
   by `TilingTensorCache`.
-- **Persistent tiling address** — each config is written once to a persistent
-  slot and the same device address is reused for the process lifetime, so
-  graph-captured kernels always read a stable tiling address. Slabs are
-  allocated with `aclrtMalloc` (outside the torch caching allocator), because
-  allocator-owned memory could be re-mapped/re-written by NPU graph capture
-  between the host write and the device read. The number of distinct configs is
-  bounded by `MAX_TILING_CACHE_BLOCKS`.
+- **Persistent tiling cache** — a single 512-entry buffer holds the cached
+  tiling configs; each config is written once and its address is reused for the
+  process lifetime, so graph-captured kernels always read a stable tiling
+  address. The buffer is allocated with `aclrtMalloc` (outside the torch caching
+  allocator), because allocator-owned memory could be re-mapped/re-written by
+  NPU graph capture between the host write and the device read. Once the 512
+  entries are full, an eager call falls back to a one-shot `at::empty` buffer
+  kept alive with `record_stream` until the current stream drains, while a
+  capture-time miss fails with a warmup error (a one-shot address is not safe
+  for a captured graph).
 - **`readGen` generation handshake** — on arch35 the host zeroes the AIV
   double-buffer release counters before launch (see *arch35-only Additions*).
 - **`cache_mode=2` CYCLE ring** — per-request ring state addressed by

@@ -103,14 +103,6 @@ constexpr size_t DIM2 = 2;
 constexpr size_t DIM3 = 3;
 constexpr size_t DIM4 = 4;
 constexpr int64_t MAX_TILING_CACHE_ENTRIES = 512;
-// Upper bound on distinct tiling configs: every cache miss allocates a new
-// persistent slot (never recycled), so without a cap a run that keeps
-// producing novel configs would grow memory without bound. Reaching the cap
-// fails loudly instead of silently reusing an address that an async/graph
-// kernel may still read. Bump MAX_TILING_CACHE_BLOCKS if a real workload
-// genuinely needs more distinct configs.
-constexpr int64_t MAX_TILING_CACHE_BLOCKS = 256;
-constexpr int64_t MAX_TILING_CACHE_ENTRIES_TOTAL = MAX_TILING_CACHE_ENTRIES * MAX_TILING_CACHE_BLOCKS;
 
 inline bool IsNpuGraphCapturing()
 {
@@ -144,61 +136,59 @@ public:
         auto &cache = deviceCaches[static_cast<int64_t>(device.index())];
         auto iter = cache.slots.find(key);
         if (iter != cache.slots.end()) {
-            return SlabTensor(cache, iter->second, tilingSize);
+            return cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
         }
 
-        // A tiling buffer address is consumed asynchronously by the kernel that
-        // is launched right after this call, so the cache must never hand out a
-        // temporary tensor whose storage can be freed/reused before that kernel
-        // completes. Long chunked-prefill / MTP runs keep producing distinct
-        // tiling configs (the cache key covers the whole tiling data, not just
-        // the template bits), so the first 512-entry slab fills up and the old
-        // one-shot at::empty fallback used to be released/reused while the async
-        // kernel was still reading it -> MTE errors or silently wrong tiling
-        // parameters. Instead we append another persistent fixed-address slab
-        // (kept alive for the process lifetime) whenever the current one is full.
         const bool isCapturing = IsNpuGraphCapturing();
-        if (isCapturing) {
-            TORCH_CHECK(false, opName,
-                        ": the current tiling configuration was not warmed up before NPU graph capture; run one eager "
-                        "warmup with the same tensor shapes, dtypes, optional inputs, and attributes");
+        if (cache.nextSlot >= MAX_TILING_CACHE_ENTRIES) {
+            TORCH_CHECK(!isCapturing, opName,
+                        ": the current tiling configuration is not cached and the 512-entry cache is full; "
+                        "NPU graph capture cannot use a one-shot tiling address");
+            auto tilingTensor = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
+            CopyTo_(tilingTensor, tilingData, opName);
+            // The async kernel launched right after this returns reads this
+            // one-shot buffer, so tell the caching allocator to keep the block
+            // alive until the current stream has drained (it is recorded when
+            // the tensor is freed, i.e. after the launch).
+            tilingTensor.record_stream(c10_npu::getCurrentNPUStream());
+            return tilingTensor;
         }
-        if (cache.nextSlot >= MAX_TILING_CACHE_ENTRIES_TOTAL) {
-            TORCH_CHECK(false, opName, ": tiling cache reached its cap of ", MAX_TILING_CACHE_ENTRIES_TOTAL,
-                        " distinct configs; raise MAX_TILING_CACHE_BLOCKS in ge_helper.h if this is a real workload");
+
+        if (!cache.buffer.defined()) {
+            TORCH_CHECK(!isCapturing, opName,
+                        ": run one eager warmup with the same configuration before NPU graph capture to initialize "
+                        "the tiling cache");
+            // Allocate the persistent tiling buffer OUTSIDE the torch NPU caching
+            // allocator (aclrtMalloc + non-owning from_blob view). Its addresses are
+            // baked into captured NPU graphs, and torch-allocator-owned memory has
+            // been observed to get re-mapped/re-written by graph capture, which would
+            // corrupt the tiling between host write and device read. Dedicated GM is
+            // never touched by the allocator, so captured addresses keep their content.
+            cache.buffer = MakeBuffer_(device, tilingSize * MAX_TILING_CACHE_ENTRIES);
+        } else {
+            TORCH_CHECK(!isCapturing, opName,
+                        ": the current tiling configuration is not cached; run one eager warmup with the same tensor "
+                        "shapes, dtypes, optional inputs, and attributes before NPU graph capture");
         }
-        if (cache.slabs.empty() || (cache.nextSlot % MAX_TILING_CACHE_ENTRIES) == 0) {
-            cache.slabs.emplace_back(MakeSlab_(device, tilingSize * MAX_TILING_CACHE_ENTRIES));
-        }
-        const int64_t slot = cache.nextSlot++;
-        auto cachedTiling = SlabTensor(cache, static_cast<uint64_t>(slot), tilingSize);
+
+        const int64_t slot = cache.nextSlot;
+        auto cachedTiling = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
         CopyTo_(cachedTiling, tilingData, opName);
-        cache.slots.emplace(std::move(key), static_cast<uint64_t>(slot));
+        cache.slots.emplace(std::move(key), slot);
+        cache.nextSlot++;
         return cachedTiling;
     }
 
 private:
-    struct DeviceCache;  // defined below; SlabTensor references it by reference
-
-    static at::Tensor SlabTensor(const DeviceCache &cache, uint64_t slot, int64_t tilingSize)
-    {
-        const size_t slabIdx = static_cast<size_t>(slot / MAX_TILING_CACHE_ENTRIES);
-        const size_t within = static_cast<size_t>(slot % MAX_TILING_CACHE_ENTRIES);
-        return cache.slabs[slabIdx].narrow(0, static_cast<int64_t>(within) * tilingSize, tilingSize);
-    }
-
-    // Allocate each tiling slab OUTSIDE the torch NPU caching allocator
-    // (aclrtMalloc + non-owning from_blob view). Tiling addresses are consumed
-    // by kernels captured into an NPU graph; torch-allocator-owned memory has
-    // been observed to get re-mapped/re-written by graph capture, corrupting the
-    // tiling data between host write and device read. Dedicated GM is never
-    // touched by the allocator, so the captured address keeps its content.
-    static at::Tensor MakeSlab_(const c10::Device &device, int64_t bytes)
+    // Allocate the persistent tiling buffer from dedicated GM via aclrtMalloc and
+    // wrap it in a non-owning from_blob view, so it never lives in (and is never
+    // re-mapped/re-written by) the torch NPU caching allocator or graph capture.
+    static at::Tensor MakeBuffer_(const c10::Device &device, int64_t bytes)
     {
         void *ptr = nullptr;
         aclError st = aclrtMalloc(&ptr, static_cast<size_t>(bytes), ACL_MEM_MALLOC_HUGE_FIRST);
-        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr, "ge_helper: aclrtMalloc tiling slab failed, acl error ",
-                    static_cast<int>(st));
+        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr,
+                    "ge_helper: aclrtMalloc tiling buffer failed, acl error ", static_cast<int>(st));
         auto del = [](void *p) {
             if (p != nullptr) {
                 aclrtFree(p);
@@ -223,8 +213,8 @@ private:
         aclrtSynchronizeStream(stream);
     }
     struct DeviceCache {
-        std::vector<at::Tensor> slabs;
-        std::unordered_map<std::string, uint64_t> slots;  // key -> persistent global slot index
+        at::Tensor buffer;
+        std::unordered_map<std::string, int64_t> slots;
         int64_t nextSlot = 0;
     };
 };
