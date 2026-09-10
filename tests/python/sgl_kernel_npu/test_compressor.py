@@ -1899,6 +1899,14 @@ class TestCompressor(unittest.TestCase):
         # now; before the fix the ring read stale/zero values and accuracy died.
         # C128: window 128 / ring 256; verify 3 candidates, accept 1, crossing
         # the 128 boundary re-reads positions like 125-127.
+        if not _is_arch35():
+            # This case models the A5 request-bank ring (CYCLE): 1-D bank table
+            # and a fixed [batch, ring] state. A3 uses an explicit 2-D location
+            # table with a paged state layout, so the ring ABI here does not
+            # apply (the CPU reference indexes the table as 2-D).
+            self.skipTest(
+                "MTP ring-rollback test targets the A5 request-bank (CYCLE) ABI"
+            )
         self._run_mtp_verify(
             ratio=128,
             coff=1,
