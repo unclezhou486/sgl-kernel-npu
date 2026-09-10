@@ -187,8 +187,8 @@ private:
     {
         void *ptr = nullptr;
         aclError st = aclrtMalloc(&ptr, static_cast<size_t>(bytes), ACL_MEM_MALLOC_HUGE_FIRST);
-        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr,
-                    "ge_helper: aclrtMalloc tiling buffer failed, acl error ", static_cast<int>(st));
+        TORCH_CHECK(st == ACL_ERROR_NONE && ptr != nullptr, "ge_helper: aclrtMalloc tiling buffer failed, acl error ",
+                    static_cast<int>(st));
         auto del = [](void *p) {
             if (p != nullptr) {
                 aclrtFree(p);
