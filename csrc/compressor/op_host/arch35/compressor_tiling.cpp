@@ -22,9 +22,9 @@
 #include "compressor_tiling.h"
 
 #include <cstdio>
-#define OP_LOGI(...)  // 保持空，避免刷屏
+#define OP_LOGI(...)  // keep it empty to avoid log flooding
 
-// plog 写入（weak symbol，运行时由 libascendalog/libunified_dlog 解析）
+// plog write (weak symbol, resolved at runtime by libascendalog/libunified_dlog)
 extern "C" {
 void DlogRecord(int32_t moduleId, int32_t level, const char *fmt, ...) __attribute__((weak));
 void DlogFlush(void);
@@ -182,7 +182,7 @@ ge::graphStatus CompressorTiling::SetBaseInfo()
         (baseParams_->seqSize + baseParams_->cmpRatio - 1) / baseParams_->cmpRatio;  // number of token after compress
     baseParams_->stateCacheStrideDim0 = static_cast<uint64_t>(*context_->stateCacheStrideDim0);
     coff = static_cast<uint8_t>(*context_->coff);
-    baseParams_->nSize = 2;  // 2:每个核处理两个基本块后做全核同步
+    baseParams_->nSize = 2;  // 2: each core processes two basic blocks before the all-core sync
     baseParams_->usedCoreNum = aicNum_;
 
     OP_LOGI(context_->opName, "[TILING] bSize:%u  tSize:%u cmpRatio:%u coff:%u, stateCacheStrideDim0:%u",
@@ -229,7 +229,7 @@ ge::graphStatus CompressorTiling::SetTemplateId()
         return ge::GRAPH_SUCCESS;
     }
     if (socVersion_ == platform_ascendc::SocVersion::ASCEND950) {
-        // 设置高性能模板
+        // select the high-performance template
         if (context_->layout == LayoutType::LAYOUT_BSH && baseParams_->seqSize <= 4 && baseParams_->tokenSize <= 256) {
             context_->templateId = TemplateId::FULL_LOAD;
         }
@@ -241,7 +241,7 @@ ge::graphStatus CompressorTiling::SetTemplateId()
 ge::graphStatus CompressorTiling::SetInnerSplitInfo()
 {
     if (context_->templateId == TemplateId::FULL_LOAD) {
-        innerSplitParams_->mBaseSize = 256;               // 256:核间切分，M轴基本块大小
+        innerSplitParams_->mBaseSize = 256;               // 256: inter-core split, M-axis basic block size
         innerSplitParams_->dBaseSize = 256 / (coff * 2);  // nBase = dBase * coff * 2
         uint32_t dBaseNum = baseParams_->headDim / innerSplitParams_->dBaseSize;
         uint32_t mBaseNum = (baseParams_->tokenSize + innerSplitParams_->mBaseSize - 1) / innerSplitParams_->mBaseSize;
@@ -251,7 +251,7 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
         if ((dBaseNum * mBaseNum) < baseParams_->usedCoreNum) {
             baseParams_->kBaseNum = baseParams_->usedCoreNum / dBaseNum;
             uint32_t kAlignSize = (baseParams_->hiddenSize + baseParams_->kBaseNum - 1) / baseParams_->kBaseNum;
-            baseParams_->kBaseSize = kAlignSize / 16 * 16;  // 切k的size需要16对齐
+            baseParams_->kBaseSize = kAlignSize / 16 * 16;  // k-split size must be 16-aligned
         }
         for (uint32_t i = 0; i < baseParams_->usedCoreNum; i++) {
             baseParams_->splitCoreParam[i].nStart = (i % dBaseNum) * innerSplitParams_->dBaseSize;
@@ -284,8 +284,8 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
             }
         }
     } else {
-        innerSplitParams_->mBaseSize = 256;         // 256:核间切分，M轴基本块大小
-        innerSplitParams_->dBaseSize = 128 / coff;  // 128：核间切分，D轴基本块大小
+        innerSplitParams_->mBaseSize = 256;         // 256: inter-core split, M-axis basic block size
+        innerSplitParams_->dBaseSize = 128 / coff;  // 128: inter-core split, D-axis basic block size
     }
     return ge::GRAPH_SUCCESS;
 }
@@ -301,7 +301,7 @@ ge::graphStatus CompressorTiling::CalcWorkSpace()
     workspaceSize_ +=
         workspaceParams_->mm1ScoreResSize * maxGroupNum * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
     workspaceSize_ += workspaceParams_->vec1TailCacheSize * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio *
-                      2;  // 2 kv和score
+                      2;  // 2: kv and score
     workspaceSize_ +=
         workspaceParams_->vec1ResSize * maxGroupNum * V1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
     workspaceSize_ += (aicNum_ + 1 + aivNum_) * workspaceParams_->dbWorkspaceRatio * sizeof(uint32_t);

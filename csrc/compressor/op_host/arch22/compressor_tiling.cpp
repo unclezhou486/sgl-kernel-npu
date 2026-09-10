@@ -22,9 +22,9 @@
 #include "compressor_tiling.h"
 
 #include <cstdio>
-#define OP_LOGI(...)  // 保持空，避免刷屏
+#define OP_LOGI(...)  // keep it empty to avoid log flooding
 
-// plog 写入（weak symbol，运行时由 libascendalog/libunified_dlog 解析）
+// plog write (weak symbol, resolved at runtime by libascendalog/libunified_dlog)
 extern "C" {
 void DlogRecord(int32_t moduleId, int32_t level, const char *fmt, ...) __attribute__((weak));
 void DlogFlush(void);
@@ -182,7 +182,7 @@ ge::graphStatus CompressorTiling::SetBaseInfo()
         (baseParams_->seqSize + baseParams_->cmpRatio - 1) / baseParams_->cmpRatio;  // number of token after compress
     baseParams_->stateCacheStrideDim0 = static_cast<uint64_t>(*context_->stateCacheStrideDim0);
     coff = static_cast<uint8_t>(*context_->coff);
-    baseParams_->nSize = 2;  // 2:每个核处理两个基本块后做全核同步
+    baseParams_->nSize = 2;  // 2: each core processes two basic blocks before the all-core sync
 
     OP_LOGI(context_->opName, "[TILING] bSize:%u  tSize:%u cmpRatio:%u coff:%u", baseParams_->batchSize,
             baseParams_->tokenSize, baseParams_->cmpRatio, coff);
@@ -230,15 +230,15 @@ ge::graphStatus CompressorTiling::SetTemplateId()
     if (context_->templateId == TemplateId::EMPTY_X) {
         return ge::GRAPH_SUCCESS;
     }
-    // 设置高性能模板
+    // select the high-performance template
     context_->templateId = TemplateId::PERF;
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus CompressorTiling::SetInnerSplitInfo()
 {
-    innerSplitParams_->mBaseSize = 256;         // 256:核间切分，M轴基本块大小
-    innerSplitParams_->dBaseSize = 128 / coff;  // 128：核间切分，D轴基本块大小
+    innerSplitParams_->mBaseSize = 256;         // 256: inter-core split, M-axis basic block size
+    innerSplitParams_->dBaseSize = 128 / coff;  // 128: inter-core split, D-axis basic block size
     if (context_->templateId == TemplateId::PERF) {
         if (coff == 2) {
             innerSplitParams_->mBaseSize = 128;
@@ -247,10 +247,10 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
         }
         innerSplitParams_->dBaseSize = 64;
     } else {
-        innerSplitParams_->mBaseSize = 256;         // 256:核间切分，M轴基本块大小
-        innerSplitParams_->dBaseSize = 128 / coff;  // 128：核间切分，D轴基本块大小
+        innerSplitParams_->mBaseSize = 256;         // 256: inter-core split, M-axis basic block size
+        innerSplitParams_->dBaseSize = 128 / coff;  // 128: inter-core split, D-axis basic block size
     }
-    // a5 由于loc更大, mBaseSize x 2
+    // On A5, loc is larger, so mBaseSize x 2
     // if (socVersion_ == platform_ascendc::SocVersion::ASCEND910_95) {
     //      innerSplitParams_->mBaseSize *= 2;
     //  }
@@ -268,7 +268,7 @@ ge::graphStatus CompressorTiling::CalcWorkSpace()
     workspaceSize_ +=
         workspaceParams_->mm1ScoreResSize * maxGroupNum * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
     workspaceSize_ += workspaceParams_->vec1TailCacheSize * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio *
-                      2;  // 2 kv和score
+                      2;  // 2: kv and score
     workspaceSize_ +=
         workspaceParams_->vec1ResSize * maxGroupNum * V1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
 
