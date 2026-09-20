@@ -399,4 +399,8 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
         ${ASCEND_DRIVER_PATH}/include
         ${ASCEND_DRIVER_PATH}/kernel/inc
+        # base/alog_pub.h (AlogRecord / AlogCheckDebugLevel -> CANN plog) lives in
+        # the CANN package's pkg_inc, not in the toolkit include dir. Same path the
+        # attentions build adds. Harmless if absent: op_log.h degrades to stderr.
+        ${ASCEND_CANN_PACKAGE_PATH}/${CMAKE_SYSTEM_PROCESSOR}-linux/pkg_inc
 )
